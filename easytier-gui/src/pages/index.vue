@@ -1,6 +1,7 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { type } from '@tauri-apps/plugin-os'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { open } from '@tauri-apps/plugin-shell'
 import { exit } from '@tauri-apps/plugin-process'
@@ -75,12 +76,86 @@ function copyShareCode() {
   }
 }
 
-function sendChat() {
+async function sendChat() {
   const msg = chatInput.value.trim()
-  if (!msg) return
+
+  if (!msg) {
+    return
+  }
+
   const name = pseudo.value.trim() || 'Anonyme'
-  addLog(`Vous (${name}) : ${msg}`)
+
   chatInput.value = ''
+
+  addLog(`${name} : ${msg}`)
+
+  try {
+    await invoke('chat_start')
+
+    /*
+     * Récupération des informations EasyTier.
+     * Les peers contiennent leurs IPv4 virtuelles.
+     */
+    const ids = await invoke<any[]>('list_network_instance_ids')
+
+    let peers: string[] = []
+
+    for (const id of ids || []) {
+      try {
+        const info = await invoke<any>('collect_network_info', {
+          inst_id: id
+        })
+
+        const network = info?.info?.map?.[id]
+
+        if (!network) {
+          continue
+        }
+
+        const myIp =
+          network?.my_node_info?.virtual_ipv4 ||
+          network?.my_node_info?.virtual_ip
+
+        const found: string[] = []
+
+        for (const peer of network?.peers || []) {
+          const ip =
+            peer?.virtual_ipv4 ||
+            peer?.virtual_ip ||
+            peer?.ipv4_addr ||
+            peer?.ip
+
+          if (ip && ip !== myIp) {
+            found.push(String(ip).split('/')[0])
+          }
+        }
+
+        peers.push(...found)
+      }
+      catch (e) {
+        console.warn('Impossible de lire les peers EasyTier:', e)
+      }
+    }
+
+    peers = [...new Set(peers)]
+
+    console.log('[CHAT] Peers EasyTier:', peers)
+
+    if (peers.length === 0) {
+      addLog('[Chat] Aucun joueur EasyTier trouvé')
+      return
+    }
+
+    await invoke('chat_send', {
+      pseudo: name,
+      text: msg,
+      peers
+    })
+  }
+  catch (e) {
+    addLog('Chat réseau EasyTier: ' + String(e))
+    console.error('[CHAT]', e)
+  }
 }
 
 const uiLang = ref(localStorage.getItem('lang') || 'fr')
@@ -878,6 +953,7 @@ body {
   color: #fff;
 }
 </style>
+
 
 
 

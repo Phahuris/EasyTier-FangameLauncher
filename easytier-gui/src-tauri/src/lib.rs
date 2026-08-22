@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod elevate;
+mod chat;
 
 use anyhow::Context;
 use easytier::proto::api::manage::{
@@ -1318,7 +1319,8 @@ pub fn run_gui() -> std::process::ExitCode {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_vpnservice::init());
+        .plugin(tauri_plugin_vpnservice::init())
+        .manage(chat::ChatState::default());
 
     let app = builder
         .setup(|app| {
@@ -1388,6 +1390,10 @@ pub fn run_gui() -> std::process::ExitCode {
             init_web_client,
             is_web_client_connected,
             get_log_dir_path,
+            chat::chat_start,
+            chat::chat_stop,
+            chat::chat_send,
+            chat::chat_send_cmd,
         ])
         .on_window_event(|_win, event| match event {
             #[cfg(not(target_os = "android"))]
@@ -1413,3 +1419,4 @@ pub fn run_cli() -> std::process::ExitCode {
         .unwrap()
         .block_on(async { easytier::core::main().await })
 }
+

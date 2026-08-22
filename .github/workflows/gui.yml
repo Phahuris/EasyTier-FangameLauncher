@@ -1,4 +1,4 @@
-﻿name: EasyTier GUI
+﻿name: EasyTier GUI Portable
 
 on:
   push:
@@ -18,37 +18,19 @@ defaults:
 
 jobs:
   build-gui:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - TARGET: x86_64-pc-windows-msvc
-            OS: windows-latest
-            GUI_TARGET: x86_64-pc-windows-msvc
-            ARTIFACT_NAME: windows-x86_64
-          - TARGET: i686-pc-windows-msvc
-            OS: windows-latest
-            GUI_TARGET: i686-pc-windows-msvc
-            ARTIFACT_NAME: windows-i686
+    runs-on: windows-latest
 
-    runs-on: ${{ matrix.OS }}
     env:
-      NAME: easytier
-      TARGET: ${{ matrix.TARGET }}
-      OS: ${{ matrix.OS }}
-      GUI_TARGET: ${{ matrix.GUI_TARGET }}
+      TARGET: x86_64-pc-windows-msvc
+      GUI_TARGET: x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set current ref as env variable
-        run: |
-          echo "GIT_DESC=$(git log -1 --format=%cd.%h --date=format:%Y-%m-%d_%H:%M:%S)" >> $GITHUB_ENV
-
       - name: Prepare build environment
         uses: ./.github/actions/prepare-build
         with:
-          target: ${{ matrix.TARGET }}
+          target: x86_64-pc-windows-msvc
           gui: true
           pnpm: true
           pnpm-build-filter: ''
@@ -56,32 +38,36 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "gui-registry"
+          shared-key: "gui-portable-x64"
           cache-targets: "false"
 
-      - name: copy correct DLLs
+      - name: Copy Windows runtime DLLs
         run: |
-          case $TARGET in
-              x86_64*)  ARCH_DIR=x86_64 ;;
-              i686*)    ARCH_DIR=i686 ;;
-          esac
-          if [[ -n "$ARCH_DIR" ]]; then
-              find "./easytier/third_party/${ARCH_DIR}" -maxdepth 1 -type f \( -name "*.dll" -o -name "*.sys" \) -exec cp {} ./easytier-gui/src-tauri/ \;
-          fi
+          find "./easytier/third_party/x86_64" -maxdepth 1 -type f \( -name "*.dll" -o -name "*.sys" \) -exec cp {} ./easytier-gui/src-tauri/ \; || true
 
-      - name: Build GUI
-        uses: tauri-apps/tauri-action@v0
-        with:
-          projectPath: ./easytier-gui
-          args: --verbose --target ${{ matrix.GUI_TARGET }}
-
-      - name: Collect artifact
+      - name: Build GUI without installer
         run: |
-          mkdir -p ./artifacts/
-          mv ./target/$GUI_TARGET/release/bundle/nsis/*.exe ./artifacts/ || true
+          cd easytier-gui
+          pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle
 
-      - name: Archive artifact
+      - name: Create portable package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $release = ".\easytier-gui\src-tauri\target\x86_64-pc-windows-msvc\release"
+          $package = ".\EasyTier-FangameLauncher-Windows-x64-Portable"
+
+          New-Item -ItemType Directory -Force $package | Out-Null
+
+          Copy-Item "$release\*.exe" $package -Force
+          Copy-Item ".\easytier-gui\src-tauri\*.dll" $package -Force -ErrorAction SilentlyContinue
+          Copy-Item ".\easytier-gui\src-tauri\*.sys" $package -Force -ErrorAction SilentlyContinue
+
+          Compress-Archive -Path "$package\*" -DestinationPath ".\EasyTier-FangameLauncher-Windows-x64-Portable.zip" -Force
+
+      - name: Upload portable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: easytier-gui-${{ matrix.ARTIFACT_NAME }}
-          path: ./artifacts/*
+          name: EasyTier-FangameLauncher-Windows-x64-Portable
+          path: EasyTier-FangameLauncher-Windows-x64-Portable.zip
