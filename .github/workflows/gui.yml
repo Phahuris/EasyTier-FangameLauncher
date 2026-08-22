@@ -33,7 +33,7 @@ jobs:
           target: x86_64-pc-windows-msvc
           gui: true
           pnpm: true
-          pnpm-build-filter: ''
+          pnpm-build-filter: 'easytier-gui'
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: Swatinem/rust-cache@v2
@@ -71,3 +71,4 @@ jobs:
         with:
           name: EasyTier-FangameLauncher-Windows-x64-Portable
           path: EasyTier-FangameLauncher-Windows-x64-Portable.zip
+
