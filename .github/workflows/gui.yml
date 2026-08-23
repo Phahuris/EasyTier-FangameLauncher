@@ -1,4 +1,4 @@
-﻿name: EasyTier GUI Portable
+name: EasyTier GUI Portable
 
 on:
   push:
@@ -55,7 +55,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $release = ".\easytier-gui\src-tauri\target\x86_64-pc-windows-msvc\release"
+          $release = ".\target\x86_64-pc-windows-msvc\release"
           $package = ".\EasyTier-FangameLauncher-Windows-x64-Portable"
 
           New-Item -ItemType Directory -Force $package | Out-Null
@@ -71,3 +71,4 @@ jobs:
         with:
           name: EasyTier-FangameLauncher-Windows-x64-Portable
           path: EasyTier-FangameLauncher-Windows-x64-Portable.zip
+
