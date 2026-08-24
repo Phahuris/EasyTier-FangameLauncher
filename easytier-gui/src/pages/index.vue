@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
 import { type } from '@tauri-apps/plugin-os'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { open } from '@tauri-apps/plugin-shell'
 import { exit } from '@tauri-apps/plugin-process'
@@ -92,18 +93,32 @@ async function sendChat() {
     await invoke('chat_start')
 
     /*
-     * Récupération des informations EasyTier.
-     * Les peers contiennent leurs IPv4 virtuelles.
+     * EasyTier peut retourner soit directement un tableau,
+     * soit un objet contenant running_inst_ids / ids.
      */
-    const ids = await invoke<any[]>('list_network_instance_ids')
+    const rawIds = await invoke<any>('list_network_instance_ids')
 
-    let peers: string[] = []
+    const ids: any[] =
+      Array.isArray(rawIds)
+        ? rawIds
+        : Array.isArray(rawIds?.running_inst_ids)
+          ? rawIds.running_inst_ids
+          : Array.isArray(rawIds?.ids)
+            ? rawIds.ids
+            : []
 
-    for (const id of ids || []) {
+    console.log('[CHAT] list_network_instance_ids:', rawIds)
+    console.log('[CHAT] Instances utilisées pour le chat:', ids)
+
+    const peers: string[] = []
+
+    for (const id of ids) {
       try {
         const info = await invoke<any>('collect_network_info', {
           inst_id: id
         })
+
+        console.log('[CHAT] collect_network_info:', id, info)
 
         const network = info?.info?.map?.[id]
 
@@ -115,9 +130,11 @@ async function sendChat() {
           network?.my_node_info?.virtual_ipv4 ||
           network?.my_node_info?.virtual_ip
 
-        const found: string[] = []
+        const networkPeers = Array.isArray(network?.peers)
+          ? network.peers
+          : []
 
-        for (const peer of network?.peers || []) {
+        for (const peer of networkPeers) {
           const ip =
             peer?.virtual_ipv4 ||
             peer?.virtual_ip ||
@@ -125,22 +142,23 @@ async function sendChat() {
             peer?.ip
 
           if (ip && ip !== myIp) {
-            found.push(String(ip).split('/')[0])
+            peers.push(String(ip).split('/')[0])
           }
         }
-
-        peers.push(...found)
       }
       catch (e) {
-        console.warn('Impossible de lire les peers EasyTier:', e)
+        console.warn(
+          '[CHAT] Impossible de lire les peers EasyTier:',
+          e
+        )
       }
     }
 
-    peers = [...new Set(peers)]
+    const uniquePeers = [...new Set(peers)]
 
-    console.log('[CHAT] Peers EasyTier:', peers)
+    console.log('[CHAT] Peers EasyTier:', uniquePeers)
 
-    if (peers.length === 0) {
+    if (uniquePeers.length === 0) {
       addLog('[Chat] Aucun joueur EasyTier trouvé')
       return
     }
@@ -148,7 +166,7 @@ async function sendChat() {
     await invoke('chat_send', {
       pseudo: name,
       text: msg,
-      peers
+      peers: uniquePeers
     })
   }
   catch (e) {
@@ -157,10 +175,28 @@ async function sendChat() {
   }
 }
 
+function copyLogsChat() {
+  const text = logLines.value.join('\n')
+
+  if (!text) {
+    addLog('[Logs] Rien à copier')
+    return
+  }
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(() => addLog('[Logs] Logs / Chat copiés'))
+      .catch(() => addLog('[Logs] Copie impossible'))
+  }
+  else {
+    addLog('[Logs] Presse-papiers indisponible')
+  }
+}
+
 const uiLang = ref(localStorage.getItem('lang') || 'fr')
 const uiStrings: Record<string, Record<string, string>> = {
   fr: {
-    title: 'FANGAMELAUNCHER',
+    title: 'FangameLauncher',
     pseudo: 'Ton pseudo',
     create: 'Créer une partie',
     join: 'Rejoindre une partie',
@@ -185,7 +221,7 @@ const uiStrings: Record<string, Record<string, string>> = {
     noParty: 'Aucune partie',
   },
   en: {
-    title: 'FANGAMELAUNCHER',
+    title: 'FangameLauncher',
     pseudo: 'Nickname',
     create: 'Create party',
     join: 'Join party',
@@ -523,6 +559,37 @@ async function initWithMode(mode: Mode) {
 
 onMounted(async () => {
   const cleanupFns: Array<() => void> = []
+
+  try {
+    const unlistenChat = await listen<any>('chat_message', (event) => {
+      const pkt = event.payload
+
+      console.log('[CHAT RX GUI] Message reçu:', pkt)
+
+      if (!pkt) {
+        return
+      }
+
+      if (pkt.type === 'chat' || pkt.kind === 'chat') {
+        const sender = String(pkt.pseudo || 'Anonyme')
+        const text = String(pkt.text || '')
+
+        if (text) {
+          addLog(`${sender} : ${text}`)
+        }
+      }
+      else if (pkt.type === 'cmd' || pkt.kind === 'cmd') {
+        addLog(
+          `[CMD] ${pkt.pseudo || 'Anonyme'} → ${pkt.plugin || ''} / ${pkt.action || ''}`
+        )
+      }
+    })
+
+    cleanupFns.push(unlistenChat)
+  }
+  catch (e) {
+    console.warn('[CHAT] Écoute chat indisponible:', e)
+  }
   if (type() === 'android') {
     try { await initMobileVpnService() } catch (e: any) { console.error(e) }
   }
@@ -803,6 +870,12 @@ const configServerConnectionStatus = computed(() => {
         <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
         <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>
       </div>
+
+      <div class="fgl-log-actions">
+        <button type="button" class="fgl-btn" @click="copyLogsChat">
+          Copier les Logs / Chat
+        </button>
+      </div>
     </div>
 
     <Menubar :model="setting_menu_items" breakpoint="795px" class="fgl-menubar">
@@ -876,13 +949,40 @@ const configServerConnectionStatus = computed(() => {
   background: #252525; color: #fff; border: 1px solid #444;
   border-radius: 3px; padding: 4px 8px; font-size: 12px; height: 28px;
 }
-.fgl-tabs { display: flex; padding: 0 12px; background: #1a1a1a; flex-shrink: 0; }
-.fgl-tab {
-  flex: 1; padding: 8px; font-size: 13px; font-weight: 700;
-  background: #252525; color: #bbb; border: 1px solid #333; cursor: pointer;
+.fgl-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  background: #1e1e1e;
+  border: 0;
+  flex-shrink: 0;
 }
-.fgl-tab.active { color: #fff; background: #2e7d32; border-color: #43a047; }
-.fgl-tab:last-child.active { background: #1565c0; border-color: #1e88e5; }
+.fgl-tab {
+  flex: 0 0 auto;
+  min-width: 190px;
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  background: #252525;
+  color: #fff;
+  border: 1px solid #333;
+  border-bottom-color: #444;
+  cursor: pointer;
+  text-align: center;
+  transition: filter .1s ease;
+}
+.fgl-tab:hover {
+  filter: brightness(1.12);
+}
+.fgl-tab.active {
+  color: #fff;
+  background: #43a047;
+  border-color: #66bb6a;
+}
+.fgl-tab:last-child.active {
+  background: #1e88e5;
+  border-color: #42a5f5;
+}
 .fgl-panel {
   padding: 8px 12px;
   background: #1e1e1e;
@@ -936,8 +1036,23 @@ const configServerConnectionStatus = computed(() => {
   font-size: 12px; color: #e0e0e0; margin: 4px 0;
 }
 .fgl-logline { white-space: pre-wrap; word-break: break-all; }
-.fgl-chatrow { display: flex; gap: 6px; flex-shrink: 0; }
-.fgl-chatrow .flex1, .fgl-chatrow .fgl-input { flex: 1; }
+.fgl-chatrow {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.fgl-chatrow .flex1,
+.fgl-chatrow .fgl-input {
+  flex: 1;
+}
+
+.fgl-log-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
 .fgl-menubar { background: #1e1e1e !important; border-top: 1px solid #333; flex-shrink: 0; }
 </style>
 
@@ -952,6 +1067,7 @@ body {
   color: #fff;
 }
 </style>
+
 
 
 
