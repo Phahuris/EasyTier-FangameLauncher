@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { type } from '@tauri-apps/plugin-os'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -69,13 +69,41 @@ function addLog(msg: string) {
 function copyShareCode() {
   const code = hostShareCode.value
   if (!code) return
+
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(code).then(() => addLog('Code copie')).catch(() => addLog('Copie impossible'))
+    navigator.clipboard.writeText(code)
+      .then(() => addLog('Code copie'))
+      .catch(() => addLog('Copie impossible'))
   } else {
     addLog('Code: ' + code)
   }
 }
 
+async function copyLogsChat() {
+  const content = logLines.value.join('\n')
+
+  if (!content) {
+    addLog('Logs / Chat vide')
+    return
+  }
+
+  try {
+    await writeText(content)
+    addLog('Logs / Chat copiés')
+  }
+  catch (e) {
+    console.error('[LOGS] Copie impossible:', e)
+
+    try {
+      await navigator.clipboard.writeText(content)
+      addLog('Logs / Chat copiés')
+    }
+    catch (e2) {
+      console.error('[LOGS] Clipboard navigateur impossible:', e2)
+      addLog('Copie des Logs / Chat impossible')
+    }
+  }
+}
 async function sendChat() {
   const msg = chatInput.value.trim()
 
@@ -93,32 +121,26 @@ async function sendChat() {
     await invoke('chat_start')
 
     /*
-     * EasyTier peut retourner soit directement un tableau,
-     * soit un objet contenant running_inst_ids / ids.
+     * list_network_instance_ids() renvoie un objet EasyTier.
+     * On récupère explicitement running_inst_ids.
      */
-    const rawIds = await invoke<any>('list_network_instance_ids')
+    const result = await invoke<any>('list_network_instance_ids')
 
-    const ids: any[] =
-      Array.isArray(rawIds)
-        ? rawIds
-        : Array.isArray(rawIds?.running_inst_ids)
-          ? rawIds.running_inst_ids
-          : Array.isArray(rawIds?.ids)
-            ? rawIds.ids
-            : []
+    const ids: string[] = Array.isArray(result)
+      ? result
+      : Array.isArray(result?.running_inst_ids)
+        ? result.running_inst_ids
+        : []
 
-    console.log('[CHAT] list_network_instance_ids:', rawIds)
-    console.log('[CHAT] Instances utilisées pour le chat:', ids)
+    console.log('[CHAT] Instances EasyTier:', ids)
 
-    const peers: string[] = []
+    let peers: string[] = []
 
     for (const id of ids) {
       try {
         const info = await invoke<any>('collect_network_info', {
           inst_id: id
         })
-
-        console.log('[CHAT] collect_network_info:', id, info)
 
         const network = info?.info?.map?.[id]
 
@@ -128,37 +150,47 @@ async function sendChat() {
 
         const myIp =
           network?.my_node_info?.virtual_ipv4 ||
-          network?.my_node_info?.virtual_ip
+          network?.my_node_info?.virtual_ip ||
+          ''
 
         const networkPeers = Array.isArray(network?.peers)
           ? network.peers
           : []
 
         for (const peer of networkPeers) {
-          const ip =
-            peer?.virtual_ipv4 ||
-            peer?.virtual_ip ||
-            peer?.ipv4_addr ||
-            peer?.ip
+          if (!peer || typeof peer !== 'object') {
+            continue
+          }
 
-          if (ip && ip !== myIp) {
-            peers.push(String(ip).split('/')[0])
+          const ip =
+            peer.virtual_ipv4 ||
+            peer.virtual_ip ||
+            peer.ipv4_addr ||
+            peer.ip ||
+            ''
+
+          if (!ip) {
+            continue
+          }
+
+          const cleanIp = String(ip).split('/')[0].trim()
+          const cleanMyIp = String(myIp).split('/')[0].trim()
+
+          if (cleanIp && cleanIp !== cleanMyIp) {
+            peers.push(cleanIp)
           }
         }
       }
       catch (e) {
-        console.warn(
-          '[CHAT] Impossible de lire les peers EasyTier:',
-          e
-        )
+        console.warn('[CHAT] Impossible de lire les peers EasyTier:', e)
       }
     }
 
-    const uniquePeers = [...new Set(peers)]
+    peers = [...new Set(peers)]
 
-    console.log('[CHAT] Peers EasyTier:', uniquePeers)
+    console.log('[CHAT] Peers EasyTier:', peers)
 
-    if (uniquePeers.length === 0) {
+    if (peers.length === 0) {
       addLog('[Chat] Aucun joueur EasyTier trouvé')
       return
     }
@@ -166,7 +198,7 @@ async function sendChat() {
     await invoke('chat_send', {
       pseudo: name,
       text: msg,
-      peers: uniquePeers
+      peers
     })
   }
   catch (e) {
@@ -174,25 +206,6 @@ async function sendChat() {
     console.error('[CHAT]', e)
   }
 }
-
-function copyLogsChat() {
-  const text = logLines.value.join('\n')
-
-  if (!text) {
-    addLog('[Logs] Rien à copier')
-    return
-  }
-
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text)
-      .then(() => addLog('[Logs] Logs / Chat copiés'))
-      .catch(() => addLog('[Logs] Copie impossible'))
-  }
-  else {
-    addLog('[Logs] Presse-papiers indisponible')
-  }
-}
-
 const uiLang = ref(localStorage.getItem('lang') || 'fr')
 const uiStrings: Record<string, Record<string, string>> = {
   fr: {
@@ -866,9 +879,19 @@ const configServerConnectionStatus = computed(() => {
       <div id="fgl-logbox" class="fgl-logbox">
         <div v-for="(line, i) in logLines" :key="i" class="fgl-logline">{{ line }}</div>
       </div>
-      <div class="fgl-chatrow">
+            <div class="fgl-chatrow">
         <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
         <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>
+      </div>
+
+      <div class="fgl-log-actions">
+        <button
+          type="button"
+          class="fgl-btn fgl-copy-logs"
+          @click="copyLogsChat"
+        >
+          Copier Logs / Chat
+        </button>
       </div>
 
       <div class="fgl-log-actions">
@@ -951,37 +974,40 @@ const configServerConnectionStatus = computed(() => {
 }
 .fgl-tabs {
   display: flex;
-  gap: 2px;
+  gap: 0;
   padding: 0 12px;
   background: #1e1e1e;
-  border: 0;
+  border-bottom: 1px solid #333;
   flex-shrink: 0;
 }
 .fgl-tab {
-  flex: 0 0 auto;
-  min-width: 190px;
-  padding: 7px 18px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 18px;
   font-size: 13px;
   font-weight: 700;
   background: #252525;
-  color: #fff;
+  color: #aaa;
   border: 1px solid #333;
-  border-bottom-color: #444;
+  border-bottom: 2px solid transparent;
   cursor: pointer;
   text-align: center;
-  transition: filter .1s ease;
+  transition: background .1s ease, color .1s ease;
 }
 .fgl-tab:hover {
-  filter: brightness(1.12);
+  background: #303030;
+  color: #fff;
 }
 .fgl-tab.active {
   color: #fff;
-  background: #43a047;
-  border-color: #66bb6a;
+  background: #2b2b2b;
+  border-color: #333;
+  border-bottom-color: #43a047;
 }
 .fgl-tab:last-child.active {
-  background: #1e88e5;
-  border-color: #42a5f5;
+  background: #2b2b2b;
+  border-color: #333;
+  border-bottom-color: #1e88e5;
 }
 .fgl-panel {
   padding: 8px 12px;
@@ -1026,14 +1052,26 @@ const configServerConnectionStatus = computed(() => {
 .fgl-adv-body { padding: 6px; max-height: 22vh; overflow-y: auto; }
 .fgl-adv-off { color: #888; padding: 8px; font-size: 12px; }
 .fgl-bottom {
-  flex: 1; min-height: 80px; display: flex; flex-direction: column;
-  padding: 6px 12px 8px; background: #121212; border-top: 1px solid #333;
+  flex: 1;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 10px;
+  background: #1e1e1e;
+  border-top: 1px solid #333;
   min-height: 0;
 }
 .fgl-logbox {
-  flex: 1; min-height: 60px; overflow-y: auto; background: #0a0a0a;
-  border: 1px solid #333; padding: 6px 8px; font-family: Consolas, monospace;
-  font-size: 12px; color: #e0e0e0; margin: 4px 0;
+  flex: 1;
+  min-height: 60px;
+  overflow-y: auto;
+  background: #121212;
+  border: 1px solid #333;
+  padding: 7px 8px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: #e0e0e0;
+  margin: 5px 0 6px;
 }
 .fgl-logline { white-space: pre-wrap; word-break: break-all; }
 .fgl-chatrow {
@@ -1052,6 +1090,7 @@ const configServerConnectionStatus = computed(() => {
   justify-content: flex-start;
   margin-top: 5px;
   flex-shrink: 0;
+  gap: 6px;
 }
 .fgl-menubar { background: #1e1e1e !important; border-top: 1px solid #333; flex-shrink: 0; }
 </style>
