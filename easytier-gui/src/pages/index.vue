@@ -793,6 +793,7 @@ const configServerConnectionStatus = computed(() => {
 
     <!-- CREATE -->
     <div v-show="activeTab === 'create'" class="fgl-panel">
+      <div class="fgl-panel-title">Créer une partie</div>
       <div class="fgl-row">
         <div class="fgl-field">
           <label class="fgl-label">{{ s.netName }}</label>
@@ -822,6 +823,7 @@ const configServerConnectionStatus = computed(() => {
 
     <!-- JOIN -->
     <div v-show="activeTab === 'join'" class="fgl-panel">
+      <div class="fgl-panel-title">Rejoindre une partie</div>
       <div class="fgl-row">
         <div class="fgl-field">
           <label class="fgl-label">{{ s.netName }}</label>
@@ -883,20 +885,9 @@ const configServerConnectionStatus = computed(() => {
         <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
         <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>
       </div>
-
       <div class="fgl-log-actions">
-        <button
-          type="button"
-          class="fgl-btn fgl-copy-logs"
-          @click="copyLogsChat"
-        >
+        <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">
           Copier Logs / Chat
-        </button>
-      </div>
-
-      <div class="fgl-log-actions">
-        <button type="button" class="fgl-btn" @click="copyLogsChat">
-          Copier les Logs / Chat
         </button>
       </div>
     </div>
@@ -918,12 +909,13 @@ const configServerConnectionStatus = computed(() => {
 .fgl-root {
   height: 100vh;
   width: 100vw;
-  background: #121212;
+  background: #1e1e1e;
   color: #fff;
   overflow: hidden;
   font-size: 13px;
   display: flex;
   flex-direction: column;
+  font-family: "Segoe UI", Tahoma, sans-serif;
 }
 .fgl-banner-demo {
   background: #5d4037;
@@ -937,120 +929,176 @@ const configServerConnectionStatus = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: #1e1e1e;
   border-bottom: 1px solid #333;
   flex-shrink: 0;
 }
-.fgl-title { font-size: 1.15rem; font-weight: 700; color: #4fc3f7; }
-.fgl-lang { display: flex; align-items: center; gap: 6px; color: #ddd; font-size: 12px; }
+.fgl-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #4fc3f7;
+}
+.fgl-lang {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ddd;
+  font-size: 12px;
+}
 .fgl-block {
-  padding: 6px 12px;
-  background: #1a1a1a;
+  padding: 8px 12px;
+  background: #1e1e1e;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
-.fgl-block .fgl-input { max-width: 200px; }
-.fgl-label { font-size: 12px; color: #eee; font-weight: 600; white-space: nowrap; }
+.fgl-block .fgl-input { max-width: 220px; }
+.fgl-label {
+  font-size: 12px;
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .fgl-input {
   background: #252525;
   color: #fff;
   border: 1px solid #444;
   border-radius: 3px;
-  padding: 5px 8px;
+  padding: 6px 8px;
   font-size: 13px;
-  height: 28px;
+  height: 30px;
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
 }
 .fgl-input:focus { outline: 1px solid #4fc3f7; }
 .fgl-select {
-  background: #252525; color: #fff; border: 1px solid #444;
-  border-radius: 3px; padding: 4px 8px; font-size: 12px; height: 28px;
+  background: #252525;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 12px;
+  height: 30px;
 }
+
+/* Onglets façon Notebook / Chrome-like (main.py) */
 .fgl-tabs {
   display: flex;
-  gap: 0;
-  padding: 0 12px;
+  padding: 8px 12px 0;
   background: #1e1e1e;
-  border-bottom: 1px solid #333;
   flex-shrink: 0;
+  gap: 2px;
 }
 .fgl-tab {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 8px 18px;
+  flex: 1;
+  padding: 8px 12px;
   font-size: 13px;
   font-weight: 700;
   background: #252525;
-  color: #aaa;
+  color: #bbb;
   border: 1px solid #333;
-  border-bottom: 2px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
   cursor: pointer;
-  text-align: center;
-  transition: background .1s ease, color .1s ease;
-}
-.fgl-tab:hover {
-  background: #303030;
-  color: #fff;
 }
 .fgl-tab.active {
   color: #fff;
-  background: #2b2b2b;
-  border-color: #333;
-  border-bottom-color: #43a047;
+  background: #2e7d32;
+  border-color: #43a047;
 }
 .fgl-tab:last-child.active {
-  background: #2b2b2b;
-  border-color: #333;
-  border-bottom-color: #1e88e5;
+  background: #1565c0;
+  border-color: #1e88e5;
 }
+
 .fgl-panel {
-  padding: 8px 12px;
+  padding: 14px 12px 12px;
   background: #1e1e1e;
+  border-top: 1px solid #333;
   flex-shrink: 0;
+}
+.fgl-panel-title {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 12px;
 }
 .fgl-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-end;
+  justify-content: center;
 }
-.fgl-field { flex: 1 1 120px; min-width: 100px; max-width: 200px; display: flex; flex-direction: column; gap: 3px; }
-.fgl-field-peer { flex: 1 1 180px; max-width: 260px; }
+.fgl-field {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fgl-field-peer { flex: 1 1 200px; max-width: 280px; }
 .fgl-field-btns { flex: 0 0 auto; max-width: none; }
-.fgl-btns { display: flex; gap: 6px; }
+.fgl-btns { display: flex; gap: 8px; }
+
 .fgl-btn {
-  background: #333; color: #fff; border: 1px solid #555;
-  padding: 5px 12px; border-radius: 3px; font-size: 12px; font-weight: 600;
-  cursor: pointer; height: 28px; white-space: nowrap;
+  background: #252525;
+  color: #fff;
+  border: 1px solid #555;
+  padding: 6px 14px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  height: 30px;
+  white-space: nowrap;
 }
 .fgl-btn:hover { filter: brightness(1.12); }
 .fgl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .fgl-btn.green { background: #43a047; border-color: #66bb6a; }
 .fgl-btn.blue { background: #1e88e5; border-color: #42a5f5; }
 .fgl-btn.red { background: #e53935; border-color: #ef5350; }
-.fgl-status { color: #4fc3f7; font-size: 12px; }
+
+.fgl-status { color: #4fc3f7; font-size: 12px; text-align: center; }
 .fgl-status-line {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
 }
 .fgl-share-label { font-size: 12px; color: #ccc; }
-.fgl-share { max-width: 220px; flex: 1 1 160px; }
+.fgl-share { max-width: 280px; flex: 1 1 180px; color: #4fc3f7; }
+
 .fgl-adv { border-top: 1px solid #333; background: #181818; flex-shrink: 0; }
 .fgl-adv-toggle {
-  width: 100%; text-align: left; padding: 6px 12px; background: transparent;
-  border: none; color: #aaa; font-size: 12px; cursor: pointer;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: #aaa;
+  font-size: 12px;
+  cursor: pointer;
 }
 .fgl-badge {
-  margin-left: 6px; font-size: 11px; color: #e53935;
-  border: 1px solid #e53935; padding: 0 5px; border-radius: 3px;
+  margin-left: 6px;
+  font-size: 11px;
+  color: #e53935;
+  border: 1px solid #e53935;
+  padding: 0 5px;
+  border-radius: 3px;
 }
-.fgl-adv-body { padding: 6px; max-height: 22vh; overflow-y: auto; }
+.fgl-adv-body { padding: 6px; max-height: 18vh; overflow-y: auto; }
 .fgl-adv-off { color: #888; padding: 8px; font-size: 12px; }
+
 .fgl-bottom {
   flex: 1;
   min-height: 80px;
@@ -1063,7 +1111,7 @@ const configServerConnectionStatus = computed(() => {
 }
 .fgl-logbox {
   flex: 1;
-  min-height: 60px;
+  min-height: 90px;
   overflow-y: auto;
   background: #121212;
   border: 1px solid #333;
@@ -1074,25 +1122,33 @@ const configServerConnectionStatus = computed(() => {
   margin: 5px 0 6px;
 }
 .fgl-logline { white-space: pre-wrap; word-break: break-all; }
+
 .fgl-chatrow {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
 }
-
 .fgl-chatrow .flex1,
-.fgl-chatrow .fgl-input {
-  flex: 1;
-}
+.fgl-chatrow .fgl-input { flex: 1; }
 
 .fgl-log-actions {
   display: flex;
-  justify-content: flex-start;
-  margin-top: 5px;
+  justify-content: flex-end;
+  margin-top: 6px;
   flex-shrink: 0;
-  gap: 6px;
 }
-.fgl-menubar { background: #1e1e1e !important; border-top: 1px solid #333; flex-shrink: 0; }
+.fgl-copy-logs {
+  min-width: 150px;
+  background: #252525;
+  border-color: #555;
+}
+.fgl-copy-logs:hover { background: #333; }
+
+.fgl-menubar {
+  background: #1e1e1e !important;
+  border-top: 1px solid #333;
+  flex-shrink: 0;
+}
 </style>
 
 <style>

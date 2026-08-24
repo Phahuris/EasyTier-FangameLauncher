@@ -14,9 +14,11 @@
                                 "icons/icon.icns",
                                 "icons/icon.ico"
                             ],
-                   "createUpdaterArtifacts":  false
+                   "createUpdaterArtifacts":  false,
+                   "publisher":  "Phahuris",
+                   "copyright":  "Phahuris"
                },
-    "productName":  "FangameLauncher",
+    "productName":  "FangameLaunchers",
     "version":  "2.6.4",
     "identifier":  "com.kkrainbow.easytier",
     "plugins":  {
@@ -27,7 +29,7 @@
     "app":  {
                 "windows":  [
                                 {
-                                    "title":  "FangameLauncher",
+                                    "title":  "FangameLaunchers",
                                     "width":  800,
                                     "height":  600
                                 }
@@ -35,5 +37,6 @@
                 "security":  {
                                  "csp":  null
                              }
-            }
+            },
+    "mainBinaryName":  "FangameLaunchers"
 }
