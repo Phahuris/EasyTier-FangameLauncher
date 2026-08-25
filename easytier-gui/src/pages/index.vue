@@ -441,7 +441,7 @@ async function startHost() {
       hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
       hostStatus.value = 'DEMO'
       isNetworkActive.value = true
-      addLog('MODE DEMO — code: ' + hostShareCode.value)
+      addLog('MODE DEMO - code: ' + hostShareCode.value)
       return
     }
 
@@ -465,20 +465,27 @@ async function startHost() {
 }
 
 async function stopHost() {
-  if (!instanceId.value || !clientRunning.value) return
   isBusy.value = true
   try {
-    await remoteClient.value.update_network_instance_state(instanceId.value, true)
-    hostShareCode.value = ''
-    hostStatus.value = s.value.noParty
-    addLog('Host arr├¬t├®.')
-  } catch (e: any) {
-    addLog('Erreur stop: ' + (e?.message || String(e)))
+    if (instanceId.value && clientRunning.value) {
+      try {
+        await remoteClient.value.update_network_instance_state(instanceId.value, true)
+      } catch (e) {
+        console.warn('stop network', e)
+      }
+    }
   } finally {
+    // IMPORTANT : reset UI meme si le backend echoue
+    instanceId.value = undefined
+    hostShareCode.value = ''
+    hostStatus.value = 'Aucune partie'
+    joinStatus.value = ''
+    isNetworkActive.value = false
+    peerList.value = []
     isBusy.value = false
+    addLog('Host arrete.')
   }
 }
-
 async function startJoin() {
   if (!requirePseudo()) return
   const rawPeer = joinPeerUrl.value.trim()
@@ -500,7 +507,7 @@ async function startJoin() {
   isBusy.value = true
   try {
     if (!clientRunning.value) {
-      joinStatus.value = 'DEMO ÔÇö join simule (pas de backend)'
+      joinStatus.value = 'DEMO ÔCö join simule (pas de backend)'
       addLog('MODE DEMO JOIN')
       addLog('Pseudo: ' + pseudo.value.trim())
       addLog('Reseau: ' + joinNetworkName.value)
@@ -695,7 +702,7 @@ onMounted(async () => {
     cleanupFns.push(unlistenChat)
   }
   catch (e) {
-    console.warn('[CHAT] ├ëcoute chat indisponible:', e)
+    console.warn('[CHAT] ├ecoute chat indisponible:', e)
   }
   if (type() === 'android') {
     try { await initMobileVpnService() } catch (e: any) { console.error(e) }
@@ -711,7 +718,7 @@ onMounted(async () => {
     await initWithMode(currentMode.value)
   } catch (e) {
     clientRunning.value = false
-    addLog('D├®marrage sans backend Tauri ÔÇö UI seule')
+    addLog('D├®marrage sans backend Tauri ÔCö UI seule')
   }
   hostShareCode.value = ''
     hostStatus.value = s.value.noParty
@@ -780,7 +787,7 @@ async function getLogDirPath(): Promise<string> {
 }
 const log_menu_items_popup: Ref<MenuItem[]> = ref([
   ...['off', 'warn', 'info', 'debug', 'trace'].map(level => ({
-    label: () => t(`logging_level_${level}`) + (current_log_level === level ? ' Ô£ô' : ''),
+    label: () => t(`logging_level_${level}`) + (current_log_level === level ? ' Ô£o' : ''),
     command: async () => { current_log_level = level; await setLoggingLevel(level) },
   })),
   { separator: true },
@@ -871,7 +878,7 @@ const configServerConnectionStatus = computed(() => {
 
     <!-- BANDEAU DEMO -->
     <div v-if="!clientRunning" class="fgl-banner-demo">
-      MODE DEMO — backend EasyTier non actif
+      MODE DEMO - backend EasyTier non actif
     </div>
 
     <!-- ONGLET STYLE CHROME + LANGUE -->
@@ -966,7 +973,7 @@ const configServerConnectionStatus = computed(() => {
     <!-- AVANCE -->
     <div class="fgl-adv">
       <button type="button" class="fgl-adv-toggle" @click="showAdvanced = !showAdvanced">
-        {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }} <span class="fgl-adv-note">(pas necessaire — deja configure par defaut)</span>
+        {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }} <span class="fgl-adv-note">(pas necessaire - deja configure par defaut)</span>
         <span v-if="!clientRunning" class="fgl-badge">backend off</span>
       </button>
       <div v-show="showAdvanced" class="fgl-adv-body">
@@ -977,7 +984,7 @@ const configServerConnectionStatus = computed(() => {
           v-model:instance-id="instanceId"
         />
         <div v-else class="fgl-adv-off">
-          Backend OFF — options EasyTier completes avec Tauri.
+          Backend OFF - options EasyTier completes avec Tauri.
         </div>
         <Menubar :model="setting_menu_items" breakpoint="795px" class="fgl-menubar">
           <template #item="{ item, props }">
@@ -997,7 +1004,7 @@ const configServerConnectionStatus = computed(() => {
       <div class="fgl-peers">
         <div class="fgl-label">Joueurs</div>
         <div class="fgl-peerbox">
-          <div v-if="peerList.length === 0" class="fgl-peer-empty">—</div>
+          <div v-if="peerList.length === 0" class="fgl-peer-empty">-</div>
           <div v-for="(name, i) in peerList" :key="i" class="fgl-peer">{{ name }}</div>
         </div>
       </div>
@@ -1008,10 +1015,7 @@ const configServerConnectionStatus = computed(() => {
         </div>
         <div class="fgl-chatrow">
           <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
-          <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>
-        </div>
-        <div class="fgl-log-actions">
-          <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">Copier Logs / Chat</button>
+          <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>`r`n          <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">Copier Logs / Chat</button>
         </div>
       </div>
     </div>
@@ -1263,6 +1267,6 @@ const configServerConnectionStatus = computed(() => {
   font-size: 11px;
   margin-left: 6px;
 }
-.fgl-log-actions { display: none; }
+/* log-actions removed */
 .fgl-copy-logs { min-width: auto; white-space: nowrap; }
 </style>
