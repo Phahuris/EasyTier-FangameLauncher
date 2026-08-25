@@ -392,49 +392,83 @@ async function refreshPeers() {
 }
 
 async function pickPublicNode(): Promise<string> {
-  // garde le nœud choisi / par défaut (test TCP trop lourd côté UI)
-  const cur = publicNodeUrl.value.trim()
-  if (cur) return cur
-  return publicNodeCandidates[0]
+  const list = [
+    publicNodeUrl.value.trim(),
+    ...publicNodeCandidates,
+    'tcp://easytier-us.slarker.me:11010',
+    'tcp://us01.225284.xyz:11010',
+  ].filter((v, i, a) => !!v && a.indexOf(v) === i)
+
+  addLog('Recherche d un noeud public...')
+
+  for (const url of list) {
+    const m = url.match(/^(?:tcp|udp):\/\/([^:\/\s]+):(\d+)/i)
+    if (!m) continue
+    const host = m[1]
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 3500)
+      const res = await fetch(
+        'https://dns.google/resolve?name=' + encodeURIComponent(host) + '&type=A',
+        { signal: ctrl.signal }
+      )
+      clearTimeout(timer)
+      const data = await res.json()
+      const ok = Array.isArray(data && data.Answer) && data.Answer.length > 0
+      if (ok) {
+        publicNodeUrl.value = url
+        addLog('Noeud public OK : ' + url)
+        return url
+      }
+      addLog('Noeud indisponible (DNS) : ' + url)
+    } catch (e) {
+      addLog('Noeud injoignable : ' + url)
+    }
+  }
+
+  const fallback = (publicNodeCandidates[0] || 'tcp://easytier-us.slarker.me:11010')
+  publicNodeUrl.value = fallback
+  addLog('Aucun noeud teste OK — fallback : ' + fallback)
+  return fallback
 }
+
 async function startHost() {
   if (!requirePseudo()) return
   if (!hostNetworkName.value.trim()) { addLog(s.value.needName); return }
 
   isBusy.value = true
   try {
+    const node = await pickPublicNode()
+    publicNodeUrl.value = node
+
     if (!clientRunning.value) {
-      // MODE DEMO (preview navigateur sans Tauri)
-      hostShareCode.value = (publicNodeUrl.value.trim() || publicNodeCandidates[0])
-    // code à coller : nom|secret|noeud
-    hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, hostShareCode.value].join('|')
+      hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
       hostStatus.value = 'DEMO — partie simulee (pas de backend)'
+      isNetworkActive.value = true
       addLog('MODE DEMO : backend EasyTier absent (preview web).')
-      addLog('Nom reseau: ' + hostNetworkName.value)
-      addLog('Secret: ' + (hostNetworkSecret.value ? '(defini)' : '(vide)'))
-      addLog('Pseudo host: ' + pseudo.value.trim())
-      addLog('Code a partager (exemple): ' + hostShareCode.value)
-      addLog('Sur un vrai client Tauri, les listeners tcp/udp:11010 + wg:11011 seraient actifs.')
+      addLog('Code a partager: ' + hostShareCode.value)
       return
     }
+
     const cfg = buildHostConfig()
+    cfg.peer_urls = [node]
     await remoteClient.value.run_network(cfg, true)
     instanceId.value = cfg.instance_id
-    hostStatus.value = s.value.hostRunning`n    isNetworkActive.value = true`n    refreshPeers()
-    hostShareCode.value = (publicNodeUrl.value.trim() || publicNodeCandidates[0])
-    // code à coller : nom|secret|noeud
-    hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, hostShareCode.value].join('|')
+    hostStatus.value = s.value.hostRunning
+    isNetworkActive.value = true
+    refreshPeers()
+    hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
     addLog(s.value.hostOk)
     addLog('Reseau: ' + cfg.network_name + ' | id: ' + cfg.instance_id)
     addLog('Code a partager: ' + hostShareCode.value)
   } catch (e: unknown) {
     addLog('Erreur host: ' + String(e))
     hostStatus.value = 'Erreur'
+    isNetworkActive.value = false
   } finally {
     isBusy.value = false
   }
 }
-
 async function stopHost() {
   if (!instanceId.value || !clientRunning.value) return
   isBusy.value = true
