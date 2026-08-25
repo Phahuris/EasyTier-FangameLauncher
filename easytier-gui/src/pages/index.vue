@@ -33,6 +33,7 @@ const chatInput = ref('')
 const logLines = ref<string[]>([])
 const isBusy = ref(false)
 const showAdvanced = ref(false)
+
 const peerList = ref<string[]>([])
 const isNetworkActive = ref(false)
 const publicNodeUrl = ref(localStorage.getItem('fgl_public_node') || 'tcp://easytier-us.slarker.me:11010')
@@ -43,13 +44,13 @@ const publicNodeCandidates = [
 watch(publicNodeUrl, (v) => localStorage.setItem('fgl_public_node', v))
 
 
-// Champs EasyTier simplifiés (Créer)
+// Champs EasyTier simplifi├®s (Cr├®er)
 const hostNetworkName = ref(localStorage.getItem('fgl_net_name') || 'fangame')
 const hostNetworkSecret = ref(localStorage.getItem('fgl_net_secret') || '')
 const hostStatus = ref('')
 const hostShareCode = ref('')
 
-// Champs EasyTier simplifiés (Rejoindre)
+// Champs EasyTier simplifi├®s (Rejoindre)
 const joinNetworkName = ref(localStorage.getItem('fgl_net_name') || 'fangame')
 const joinNetworkSecret = ref(localStorage.getItem('fgl_net_secret') || '')
 const joinPeerUrl = ref('')
@@ -98,14 +99,14 @@ async function copyLogsChat() {
 
   try {
     await writeText(content)
-    addLog('Logs / Chat copiés')
+    addLog('Logs / Chat copi├®s')
   }
   catch (e) {
     console.error('[LOGS] Copie impossible:', e)
 
     try {
       await navigator.clipboard.writeText(content)
-      addLog('Logs / Chat copiés')
+      addLog('Logs / Chat copi├®s')
     }
     catch (e2) {
       console.error('[LOGS] Clipboard navigateur impossible:', e2)
@@ -131,7 +132,7 @@ async function sendChat() {
 
     /*
      * list_network_instance_ids() renvoie un objet EasyTier.
-     * On récupère explicitement running_inst_ids.
+     * On r├®cup├¿re explicitement running_inst_ids.
      */
     const result = await invoke<any>('list_network_instance_ids')
 
@@ -200,7 +201,7 @@ async function sendChat() {
     console.log('[CHAT] Peers EasyTier:', peers)
 
     if (peers.length === 0) {
-      addLog('[Chat] Aucun joueur EasyTier trouvé')
+      addLog('[Chat] Aucun joueur EasyTier trouv├®')
       return
     }
 
@@ -211,7 +212,7 @@ async function sendChat() {
     })
   }
   catch (e) {
-    addLog('Chat réseau EasyTier: ' + String(e))
+    addLog('Chat r├®seau EasyTier: ' + String(e))
     console.error('[CHAT]', e)
   }
 }
@@ -220,25 +221,25 @@ const uiStrings: Record<string, Record<string, string>> = {
   fr: {
     title: 'FangameLauncher',
     pseudo: 'Ton pseudo',
-    create: 'Créer une partie',
+    create: 'Cr├®er une partie',
     join: 'Rejoindre une partie',
-    netName: 'Nom du réseau',
-    netSecret: 'Mot de passe réseau (secret)',
+    netName: 'Nom du r├®seau',
+    netSecret: 'Mot de passe r├®seau (secret)',
     peerUrl: 'Adresse du serveur (peer)',
     peerPh: 'ex: tcp://IP:11010',
-    startHost: 'Démarrer la partie',
-    stopHost: 'Arrêter',
+    startHost: 'D├®marrer la partie',
+    stopHost: 'Arr├¬ter',
     doJoin: 'Rejoindre',
     language: 'Langue',
     logsChat: 'Logs / Chat',
     send: 'Envoyer',
-    advanced: 'Options avancées EasyTier',
+    advanced: 'Options avanc├®es EasyTier',
     needPseudo: 'Pseudo obligatoire.',
-    needName: 'Nom du réseau obligatoire.',
+    needName: 'Nom du r├®seau obligatoire.',
     needPeer: 'Adresse du serveur obligatoire.',
-    noClient: 'Client EasyTier non connecté (il faut le backend Tauri / easytier-core).',
-    hostOk: 'Réseau host démarré.',
-    joinOk: 'Connexion au réseau lancée.',
+    noClient: 'Client EasyTier non connect├® (il faut le backend Tauri / easytier-core).',
+    hostOk: 'R├®seau host d├®marr├®.',
+    joinOk: 'Connexion au r├®seau lanc├®e.',
     hostRunning: 'Partie active (host)',
     noParty: 'Aucune partie',
   },
@@ -274,7 +275,7 @@ async function setLanguage(lang: string) {
   uiLang.value = lang
   localStorage.setItem('lang', lang)
   try { await I18nUtils.loadLanguageAsync('en') } catch (e) { console.error(e) }
-  addLog(lang === 'fr' ? 'Langue : Français' : 'Language : English')
+  addLog(lang === 'fr' ? 'Langue : Fran├ºais' : 'Language : English')
 }
 
 function requirePseudo(): boolean {
@@ -395,12 +396,9 @@ async function pickPublicNode(): Promise<string> {
   const list = [
     publicNodeUrl.value.trim(),
     ...publicNodeCandidates,
-    'tcp://easytier-us.slarker.me:11010',
-    'tcp://us01.225284.xyz:11010',
   ].filter((v, i, a) => !!v && a.indexOf(v) === i)
 
   addLog('Recherche d un noeud public...')
-
   for (const url of list) {
     const m = url.match(/^(?:tcp|udp):\/\/([^:\/\s]+):(\d+)/i)
     if (!m) continue
@@ -414,24 +412,21 @@ async function pickPublicNode(): Promise<string> {
       )
       clearTimeout(timer)
       const data = await res.json()
-      const ok = Array.isArray(data && data.Answer) && data.Answer.length > 0
-      if (ok) {
+      if (Array.isArray(data?.Answer) && data.Answer.length > 0) {
         publicNodeUrl.value = url
         addLog('Noeud public OK : ' + url)
         return url
       }
       addLog('Noeud indisponible (DNS) : ' + url)
-    } catch (e) {
+    } catch {
       addLog('Noeud injoignable : ' + url)
     }
   }
-
-  const fallback = (publicNodeCandidates[0] || 'tcp://easytier-us.slarker.me:11010')
+  const fallback = publicNodeCandidates[0]
   publicNodeUrl.value = fallback
-  addLog('Aucun noeud teste OK — fallback : ' + fallback)
+  addLog('Fallback noeud : ' + fallback)
   return fallback
 }
-
 async function startHost() {
   if (!requirePseudo()) return
   if (!hostNetworkName.value.trim()) { addLog(s.value.needName); return }
@@ -443,10 +438,9 @@ async function startHost() {
 
     if (!clientRunning.value) {
       hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
-      hostStatus.value = 'DEMO — partie simulee (pas de backend)'
+      hostStatus.value = 'DEMO'
       isNetworkActive.value = true
-      addLog('MODE DEMO : backend EasyTier absent (preview web).')
-      addLog('Code a partager: ' + hostShareCode.value)
+      addLog('MODE DEMO — code: ' + hostShareCode.value)
       return
     }
 
@@ -459,7 +453,6 @@ async function startHost() {
     refreshPeers()
     hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
     addLog(s.value.hostOk)
-    addLog('Reseau: ' + cfg.network_name + ' | id: ' + cfg.instance_id)
     addLog('Code a partager: ' + hostShareCode.value)
   } catch (e: unknown) {
     addLog('Erreur host: ' + String(e))
@@ -469,6 +462,7 @@ async function startHost() {
     isBusy.value = false
   }
 }
+
 async function stopHost() {
   if (!instanceId.value || !clientRunning.value) return
   isBusy.value = true
@@ -476,9 +470,7 @@ async function stopHost() {
     await remoteClient.value.update_network_instance_state(instanceId.value, true)
     hostShareCode.value = ''
     hostStatus.value = s.value.noParty
-    isNetworkActive.value = false
-    peerList.value = []
-    addLog('Host arrêté.')
+    addLog('Host arr├¬t├®.')
   } catch (e: any) {
     addLog('Erreur stop: ' + (e?.message || String(e)))
   } finally {
@@ -488,7 +480,6 @@ async function stopHost() {
 
 async function startJoin() {
   if (!requirePseudo()) return
-  // FGL_PARSE_CODE
   const rawPeer = joinPeerUrl.value.trim()
   if (rawPeer.includes('|')) {
     const parts = rawPeer.split('|')
@@ -508,7 +499,7 @@ async function startJoin() {
   isBusy.value = true
   try {
     if (!clientRunning.value) {
-      joinStatus.value = 'DEMO — join simule (pas de backend)'
+      joinStatus.value = 'DEMO ÔÇö join simule (pas de backend)'
       addLog('MODE DEMO JOIN')
       addLog('Pseudo: ' + pseudo.value.trim())
       addLog('Reseau: ' + joinNetworkName.value)
@@ -532,7 +523,7 @@ async function startJoin() {
   }
 }
 
-// ===== EasyTier mode / RPC (conservé) =====
+// ===== EasyTier mode / RPC (conserv├®) =====
 async function openModeDialog() {
   editingMode.value = JSON.parse(JSON.stringify(loadMode()))
   modeDialogVisible.value = true
@@ -544,7 +535,7 @@ async function onModeSave() {
   try {
     await initWithMode(editingMode.value)
     modeDialogVisible.value = false
-    addLog('Mode sauvegardé')
+    addLog('Mode sauvegard├®')
   } catch (e: any) {
     toast.add({ severity: 'error', summary: t('error'), detail: e, life: 10000 })
     await initWithMode(currentMode.value)
@@ -669,7 +660,7 @@ async function initWithMode(mode: Mode) {
   currentMode.value = mode
   saveMode(mode)
   clientRunning.value = await isClientRunning().catch(() => false)
-  addLog(clientRunning.value ? 'EasyTier prêt' : 'Backend non disponible (mode navigateur)')
+  addLog(clientRunning.value ? 'EasyTier pr├¬t' : 'Backend non disponible (mode navigateur)')
 }
 
 onMounted(async () => {
@@ -679,7 +670,7 @@ onMounted(async () => {
     const unlistenChat = await listen<any>('chat_message', (event) => {
       const pkt = event.payload
 
-      console.log('[CHAT RX GUI] Message reçu:', pkt)
+      console.log('[CHAT RX GUI] Message re├ºu:', pkt)
 
       if (!pkt) {
         return
@@ -695,7 +686,7 @@ onMounted(async () => {
       }
       else if (pkt.type === 'cmd' || pkt.kind === 'cmd') {
         addLog(
-          `[CMD] ${pkt.pseudo || 'Anonyme'} → ${pkt.plugin || ''} / ${pkt.action || ''}`
+          `[CMD] ${pkt.pseudo || 'Anonyme'} ÔåÆ ${pkt.plugin || ''} / ${pkt.action || ''}`
         )
       }
     })
@@ -703,7 +694,7 @@ onMounted(async () => {
     cleanupFns.push(unlistenChat)
   }
   catch (e) {
-    console.warn('[CHAT] Écoute chat indisponible:', e)
+    console.warn('[CHAT] ├ëcoute chat indisponible:', e)
   }
   if (type() === 'android') {
     try { await initMobileVpnService() } catch (e: any) { console.error(e) }
@@ -719,15 +710,11 @@ onMounted(async () => {
     await initWithMode(currentMode.value)
   } catch (e) {
     clientRunning.value = false
-    addLog('Démarrage sans backend Tauri — UI seule')
+    addLog('D├®marrage sans backend Tauri ÔÇö UI seule')
   }
   hostShareCode.value = ''
     hostStatus.value = s.value.noParty
-    isNetworkActive.value = false
-    peerList.value = []
-  addLog('FangameLauncher démarré')
-  const peerTimer = setInterval(() => { if (isNetworkActive.value) refreshPeers() }, 3000)
-  cleanupFns.push(() => clearInterval(peerTimer))
+  addLog('FangameLauncher d├®marr├®')
   onUnmounted(() => cleanupFns.forEach(fn => fn()))
 })
 
@@ -780,7 +767,7 @@ async function getLogDirPath(): Promise<string> {
 }
 const log_menu_items_popup: Ref<MenuItem[]> = ref([
   ...['off', 'warn', 'info', 'debug', 'trace'].map(level => ({
-    label: () => t(`logging_level_${level}`) + (current_log_level === level ? ' ✓' : ''),
+    label: () => t(`logging_level_${level}`) + (current_log_level === level ? ' Ô£ô' : ''),
     command: async () => { current_log_level = level; await setLoggingLevel(level) },
   })),
   { separator: true },
@@ -869,23 +856,20 @@ const configServerConnectionStatus = computed(() => {
     </Dialog>
     <Menu ref="log_menu" :model="log_menu_items_popup" :popup="true" />
 
+    <!-- BANDEAU DEMO -->
     <div v-if="!clientRunning" class="fgl-banner-demo">
       MODE DEMO — backend EasyTier non actif
     </div>
 
-    <!-- BARRE ONGLETS CHROME + LANGUE -->
+    <!-- ONGLET STYLE CHROME + LANGUE -->
     <div class="fgl-chrome">
       <div class="fgl-chrome-tabs">
-        <button type="button" class="fgl-chrome-tab" :class="{ active: activeTab === 'create' }" @click="activeTab = 'create'">
-          {{ s.create }}
-        </button>
-        <button type="button" class="fgl-chrome-tab" :class="{ active: activeTab === 'join' }" @click="activeTab = 'join'">
-          {{ s.join }}
-        </button>
+        <button type="button" class="fgl-chrome-tab" :class="{ active: activeTab === 'create' }" @click="activeTab = 'create'">{{ s.create }}</button>
+        <button type="button" class="fgl-chrome-tab" :class="{ active: activeTab === 'join' }" @click="activeTab = 'join'">{{ s.join }}</button>
       </div>
       <div class="fgl-chrome-right">
         <select class="fgl-select" :value="uiLang" @change="setLanguage(($event.target as HTMLSelectElement).value)">
-          <option value="fr">Français</option>
+          <option value="fr">Francais</option>
           <option value="en">English</option>
         </select>
       </div>
@@ -908,7 +892,7 @@ const configServerConnectionStatus = computed(() => {
             <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
           </div>
           <div class="fgl-field fgl-field-wide">
-            <label class="fgl-label">Nœud public</label>
+            <label class="fgl-label">Noeud public</label>
             <input class="fgl-input" v-model="publicNodeUrl" type="text" placeholder="tcp://easytier-us.slarker.me:11010" />
           </div>
         </div>
@@ -917,8 +901,8 @@ const configServerConnectionStatus = computed(() => {
         </div>
       </div>
       <div v-else class="fgl-card fgl-card-running">
-        <div class="fgl-running-line"><span>Réseau</span><strong>{{ hostNetworkName }}</strong></div>
-        <div class="fgl-running-line"><span>Nœud</span><strong>{{ publicNodeUrl }}</strong></div>
+        <div class="fgl-running-line"><span>Reseau</span><strong>{{ hostNetworkName }}</strong></div>
+        <div class="fgl-running-line"><span>Noeud</span><strong>{{ publicNodeUrl }}</strong></div>
         <div class="fgl-running-line" v-if="hostShareCode">
           <span>Code</span>
           <input class="fgl-input fgl-share" :value="hostShareCode" readonly @focus="($event.target as HTMLInputElement).select()" />
@@ -948,18 +932,18 @@ const configServerConnectionStatus = computed(() => {
             <input class="fgl-input" v-model="joinNetworkSecret" type="password" />
           </div>
           <div class="fgl-field fgl-field-wide">
-            <label class="fgl-label">{{ s.peerUrl }} / Nœud public</label>
+            <label class="fgl-label">{{ s.peerUrl }} / code partie</label>
             <input class="fgl-input" v-model="joinPeerUrl" type="text" :placeholder="s.peerPh" />
           </div>
         </div>
         <div class="fgl-actions">
           <button type="button" class="fgl-btn blue" :disabled="isBusy" @click="startJoin">{{ s.doJoin }}</button>
         </div>
-        <div class="fgl-hint">Colle le code de partie (nom|secret|noeud) dans le champ nœud, ou remplis à la main.</div>
+        <div class="fgl-hint">Colle le code nom|secret|noeud ou remplis a la main.</div>
       </div>
       <div v-else class="fgl-card fgl-card-running">
-        <div class="fgl-running-line"><span>Réseau</span><strong>{{ joinNetworkName }}</strong></div>
-        <div class="fgl-running-line"><span>Nœud</span><strong>{{ joinPeerUrl || publicNodeUrl }}</strong></div>
+        <div class="fgl-running-line"><span>Reseau</span><strong>{{ joinNetworkName }}</strong></div>
+        <div class="fgl-running-line"><span>Noeud</span><strong>{{ joinPeerUrl || publicNodeUrl }}</strong></div>
         <div class="fgl-actions">
           <button type="button" class="fgl-btn red" :disabled="isBusy" @click="stopHost">{{ s.stopHost }}</button>
         </div>
@@ -967,7 +951,7 @@ const configServerConnectionStatus = computed(() => {
       </div>
     </div>
 
-    <!-- AVANCÉ -->
+    <!-- AVANCE -->
     <div class="fgl-adv">
       <button type="button" class="fgl-adv-toggle" @click="showAdvanced = !showAdvanced">
         {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }}
@@ -977,10 +961,11 @@ const configServerConnectionStatus = computed(() => {
         <RemoteManagement
           v-if="clientRunning"
           :api="remoteClient"
+          :pause-auto-refresh="isModeSaving"
           v-model:instance-id="instanceId"
         />
         <div v-else class="fgl-adv-off">
-          Backend OFF — options EasyTier complètes disponibles avec Tauri.
+          Backend OFF — options EasyTier completes avec Tauri.
         </div>
         <Menubar :model="setting_menu_items" breakpoint="795px" class="fgl-menubar">
           <template #item="{ item, props }">
@@ -995,7 +980,7 @@ const configServerConnectionStatus = computed(() => {
       </div>
     </div>
 
-    <!-- JOUEURS + LOGS / CHAT -->
+    <!-- JOUEURS + LOGS -->
     <div class="fgl-bottom">
       <div class="fgl-peers">
         <div class="fgl-label">Joueurs</div>
@@ -1020,103 +1005,6 @@ const configServerConnectionStatus = computed(() => {
     </div>
   </div>
 </template>
-    </Dialog>
-    <Dialog v-model:visible="configServerDialogVisible" modal :header="t('config-server.title')" :style="{ width: '50vw' }">
-      <div class="flex flex-col gap-3">
-        <label>{{ t('config-server.address') }}</label>
-        <InputText v-model="(editingMode as WebClientConfig).config_server_url" />
-      </div>
-      <template #footer>
-        <Button :label="t('web.common.cancel')" @click="configServerDialogVisible = false" text />
-        <Button :label="t('web.common.save')" @click="onConfigServerSave" autofocus />
-      </template>
-    </Dialog>
-    <Menu ref="log_menu" :model="log_menu_items_popup" :popup="true" />
-
-    <!-- BANDEAU DEMO -->
-    <div v-if="!clientRunning" class="fgl-banner-demo">
-      MODE DEMO (preview web) — UI complete cliquable, reseau EasyTier non actif. Il manque le backend Tauri (disque / link.exe).
-    </div>
-    <!-- HEADER -->
-    <header class="fgl-header">
-      <div class="fgl-title">{{ s.title }}</div>
-      <div class="fgl-lang">
-        <span>{{ s.language }}</span>
-        <select class="fgl-select" :value="uiLang" @change="setLanguage(($event.target as HTMLSelectElement).value)">
-          <option value="fr">Français</option>
-          <option value="en">English</option>
-        </select>
-      </div>
-    </header>
-
-    <!-- PSEUDO -->
-    <div class="fgl-block">
-      <label class="fgl-label">{{ s.pseudo }}</label>
-      <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
-    </div>
-
-    <!-- TABS -->
-    <div class="fgl-tabs">
-      <button type="button" class="fgl-tab" :class="{ active: activeTab === 'create' }" @click="activeTab = 'create'">{{ s.create }}</button>
-      <button type="button" class="fgl-tab" :class="{ active: activeTab === 'join' }" @click="activeTab = 'join'">{{ s.join }}</button>
-    </div>
-
-    <!-- CREATE -->
-    <div v-show="activeTab === 'create'" class="fgl-panel">
-      <div class="fgl-panel-title">Créer une partie</div>
-      <div class="fgl-row">
-        <div class="fgl-field">
-          <label class="fgl-label">{{ s.netName }}</label>
-          <input class="fgl-input" v-model="hostNetworkName" type="text" />
-        </div>
-        <div class="fgl-field">
-          <label class="fgl-label">{{ s.netSecret }}</label>
-          <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
-        </div>
-        <div class="fgl-field fgl-field-btns">
-          <label class="fgl-label">&nbsp;</label>
-          <div class="fgl-btns">
-            <button type="button" class="fgl-btn green" :disabled="isBusy" @click="startHost">{{ s.startHost }}</button>
-            <button type="button" class="fgl-btn red" :disabled="isBusy" @click="stopHost">{{ s.stopHost }}</button>
-          </div>
-        </div>
-      </div>
-      <div class="fgl-status-line">
-        <span class="fgl-status">{{ hostStatus }}</span>
-        <template v-if="hostShareCode">
-          <span class="fgl-share-label">Code / peer a donner :</span>
-          <input class="fgl-input fgl-share" :value="hostShareCode" readonly @focus="($event.target as HTMLInputElement).select()" />
-          <button type="button" class="fgl-btn" @click="copyShareCode">Copier</button>
-        </template>
-      </div>
-    </div>
-
-    <!-- JOIN -->
-    <div v-show="activeTab === 'join'" class="fgl-panel">
-      <div class="fgl-panel-title">Rejoindre une partie</div>
-      <div class="fgl-row">
-        <div class="fgl-field">
-          <label class="fgl-label">{{ s.netName }}</label>
-          <input class="fgl-input" v-model="joinNetworkName" type="text" />
-        </div>
-        <div class="fgl-field">
-          <label class="fgl-label">{{ s.netSecret }}</label>
-          <input class="fgl-input" v-model="joinNetworkSecret" type="password" />
-        </div>
-        <div class="fgl-field fgl-field-peer">
-          <label class="fgl-label">{{ s.peerUrl }}</label>
-          <input class="fgl-input" v-model="joinPeerUrl" type="text" :placeholder="s.peerPh" />
-        </div>
-        <div class="fgl-field fgl-field-btns">
-          <label class="fgl-label">&nbsp;</label>
-          <div class="fgl-btns">
-            <button type="button" class="fgl-btn blue" :disabled="isBusy" @click="startJoin">{{ s.doJoin }}</button>
-          </div>
-        </div>
-      </div>
-      <div class="fgl-status">{{ joinStatus }}</div>
-    </div>
-</template>
 
 <style scoped lang="postcss">
 .fgl-root {
@@ -1138,8 +1026,6 @@ const configServerConnectionStatus = computed(() => {
   text-align: center;
   flex-shrink: 0;
 }
-
-/* Onglets style Chrome */
 .fgl-chrome {
   display: flex;
   align-items: stretch;
@@ -1151,11 +1037,9 @@ const configServerConnectionStatus = computed(() => {
 .fgl-chrome-tabs {
   display: flex;
   flex: 1;
-  gap: 0;
   padding: 6px 6px 0 8px;
 }
 .fgl-chrome-tab {
-  flex: 0 1 auto;
   min-width: 140px;
   max-width: 220px;
   padding: 8px 18px;
@@ -1174,21 +1058,13 @@ const configServerConnectionStatus = computed(() => {
   background: #121212;
   color: #fff;
   border-color: #3a3a3a;
-  position: relative;
-  z-index: 1;
 }
 .fgl-chrome-right {
   display: flex;
   align-items: center;
   padding: 0 12px;
-  gap: 8px;
 }
-
-.fgl-panel {
-  padding: 12px 14px 8px;
-  background: #121212;
-  flex-shrink: 0;
-}
+.fgl-panel { padding: 12px 14px 8px; background: #121212; flex-shrink: 0; }
 .fgl-card {
   background: #1c1c1c;
   border: 1px solid #2e2e2e;
@@ -1203,11 +1079,7 @@ const configServerConnectionStatus = computed(() => {
 }
 .fgl-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .fgl-field-wide { grid-column: 1 / -1; }
-.fgl-label {
-  font-size: 12px;
-  color: #b0b0b0;
-  font-weight: 600;
-}
+.fgl-label { font-size: 12px; color: #b0b0b0; font-weight: 600; }
 .fgl-input {
   background: #252525;
   color: #fff;
@@ -1229,12 +1101,7 @@ const configServerConnectionStatus = computed(() => {
   font-size: 12px;
   height: 30px;
 }
-.fgl-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  justify-content: flex-end;
-}
+.fgl-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
 .fgl-btn {
   background: #2a2a2a;
   color: #fff;
@@ -1253,21 +1120,10 @@ const configServerConnectionStatus = computed(() => {
 .fgl-btn.red { background: #c62828; border-color: #e53935; }
 .fgl-status { color: #4fc3f7; font-size: 12px; margin-top: 8px; text-align: center; }
 .fgl-hint { font-size: 11px; color: #888; margin-top: 8px; }
-.fgl-running-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  font-size: 13px;
-}
+.fgl-running-line { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
 .fgl-running-line span { color: #888; min-width: 56px; }
 .fgl-share { flex: 1; max-width: 420px; color: #4fc3f7; }
-
-.fgl-adv {
-  border-top: 1px solid #2a2a2a;
-  background: #161616;
-  flex-shrink: 0;
-}
+.fgl-adv { border-top: 1px solid #2a2a2a; background: #161616; flex-shrink: 0; }
 .fgl-adv-toggle {
   width: 100%;
   text-align: left;
@@ -1294,7 +1150,6 @@ const configServerConnectionStatus = computed(() => {
   border-radius: 6px;
   margin-top: 8px;
 }
-
 .fgl-bottom {
   flex: 1;
   min-height: 0;
@@ -1343,17 +1198,13 @@ const configServerConnectionStatus = computed(() => {
   border: 1px solid #2e2e2e;
   border-radius: 8px;
   padding: 8px;
-  font-family: Consolas, "Cascadia Mono", monospace;
+  font-family: Consolas, monospace;
   font-size: 12px;
   color: #d0d0d0;
   margin: 4px 0 6px;
 }
 .fgl-logline { white-space: pre-wrap; word-break: break-all; }
-.fgl-chatrow {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
+.fgl-chatrow { display: flex; gap: 6px; flex-shrink: 0; }
 .fgl-chatrow .flex1,
 .fgl-chatrow .fgl-input { flex: 1; }
 .fgl-log-actions {
@@ -1364,25 +1215,3 @@ const configServerConnectionStatus = computed(() => {
 }
 .fgl-copy-logs { min-width: 150px; }
 </style>
-
-<style>
-body {
-  height: 100vh;
-  width: 100vw;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  background: #121212 !important;
-  color: #fff;
-}
-</style>
-
-
-
-
-
-
-
-
-
-
