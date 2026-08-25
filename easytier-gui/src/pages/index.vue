@@ -976,7 +976,7 @@ const configServerConnectionStatus = computed(() => {
       <div v-show="showAdvanced" class="fgl-adv-body">
         <RemoteManagement
           v-if="clientRunning"
-          :client="remoteClient"
+          :api="remoteClient"
           v-model:instance-id="instanceId"
         />
         <div v-else class="fgl-adv-off">
@@ -987,7 +987,7 @@ const configServerConnectionStatus = computed(() => {
             <a v-if="item.key === 'logging_menu'" v-bind="props.action" @click="toggle_log_menu">
               <span :class="item.icon" /><span class="p-menubar-item-label">{{ getLabel(item) }}</span>
             </a>
-            <a v-else v-bind="props.action" @click="item.command">
+            <a v-else v-bind="props.action">
               <span :class="item.icon" /><span class="p-menubar-item-label">{{ getLabel(item) }}</span>
             </a>
           </template>
@@ -1116,63 +1116,6 @@ const configServerConnectionStatus = computed(() => {
       </div>
       <div class="fgl-status">{{ joinStatus }}</div>
     </div>
-
-    <!-- Advanced EasyTier (toute l'UI d'origine) -->
-    <div class="fgl-adv">
-      <button type="button" class="fgl-adv-toggle" @click="showAdvanced = !showAdvanced">
-        {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }}
-        <span v-if="!clientRunning" class="fgl-badge">backend off</span>
-      </button>
-      <div v-show="showAdvanced" class="fgl-adv-body">
-        <RemoteManagement
-          v-if="clientRunning"
-          :api="remoteClient"
-          :pause-auto-refresh="isModeSaving"
-          v-model:instance-id="instanceId"
-        />
-        <div v-else class="fgl-adv-off">
-          <p><strong>Backend OFF</strong> — preview navigateur : l UI complete EasyTier (RemoteManagement) s affiche seulement avec Tauri + link.exe.</p>
-          <p>Ce que tu auras en mode natif dans cette zone :</p>
-          <ul>
-            <li>Liste des reseaux / instances</li>
-            <li>Creer / editer / lancer / arreter un reseau</li>
-            <li>Import / export config TOML</li>
-            <li>Statut, peers, routes, erreurs</li>
-            <li>Tous les reglage avances EasyTier (Config.vue)</li>
-          </ul>
-          <p>Formulaire simplifie actuel (onglets Creer / Rejoindre) = raccourci joueur vers la meme logique run_network.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- LOGS + CHAT FUSIONNÉS (comme main.py) -->
-    <div class="fgl-bottom">
-      <div class="fgl-label">{{ s.logsChat }}</div>
-      <div id="fgl-logbox" class="fgl-logbox">
-        <div v-for="(line, i) in logLines" :key="i" class="fgl-logline">{{ line }}</div>
-      </div>
-            <div class="fgl-chatrow">
-        <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
-        <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>
-      </div>
-      <div class="fgl-log-actions">
-        <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">
-          Copier Logs / Chat
-        </button>
-      </div>
-    </div>
-
-    <Menubar :model="setting_menu_items" breakpoint="795px" class="fgl-menubar">
-      <template #item="{ item, props }">
-        <a v-if="item.key === 'logging_menu'" v-bind="props.action" @click="toggle_log_menu">
-          <span :class="item.icon" /><span class="p-menubar-item-label">{{ getLabel(item) }}</span>
-        </a>
-        <a v-else v-bind="props.action">
-          <span :class="item.icon" /><span class="p-menubar-item-label">{{ getLabel(item) }}</span>
-        </a>
-      </template>
-    </Menubar>
-  </div>
 </template>
 
 <style scoped lang="postcss">
