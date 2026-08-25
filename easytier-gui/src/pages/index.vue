@@ -36,6 +36,7 @@ const showAdvanced = ref(false)
 
 const peerList = ref<string[]>([])
 const isNetworkActive = ref(false)
+const useDhcp = ref(true)
 const publicNodeUrl = ref(localStorage.getItem('fgl_public_node') || 'tcp://easytier-us.slarker.me:11010')
 const publicNodeCandidates = [
   'tcp://easytier-us.slarker.me:11010',
@@ -293,7 +294,7 @@ function newId() {
 function buildHostConfig(): any {
   return {
     instance_id: newId(),
-    dhcp: true,
+    dhcp: useDhcp.value,
     virtual_ipv4: '',
     network_length: 24,
     hostname: pseudo.value.trim(),
@@ -329,7 +330,7 @@ function buildJoinConfig(): any {
   const peer = joinPeerUrl.value.trim()
   return {
     instance_id: newId(),
-    dhcp: true,
+    dhcp: useDhcp.value,
     virtual_ipv4: '',
     network_length: 24,
     hostname: pseudo.value.trim(),
@@ -718,7 +719,19 @@ onMounted(async () => {
   onUnmounted(() => cleanupFns.forEach(fn => fn()))
 })
 
-useTray(true)
+useTray(false)
+
+// Fermer la fenetre = quitter l app (pas rester en tray)
+onMounted(async () => {
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    const win = getCurrentWindow()
+    await win.onCloseRequested(async () => {
+      try { await exit(0) } catch { /* ignore */ }
+    })
+  } catch { /* preview web */ }
+})
+
 let toast = useToast()
 const remoteClient = computed(() => new GUIRemoteClient())
 const instanceId = ref<string | undefined>(undefined)
@@ -939,7 +952,6 @@ const configServerConnectionStatus = computed(() => {
         <div class="fgl-actions">
           <button type="button" class="fgl-btn blue" :disabled="isBusy" @click="startJoin">{{ s.doJoin }}</button>
         </div>
-        <div class="fgl-hint">Colle le code nom|secret|noeud ou remplis a la main.</div>
       </div>
       <div v-else class="fgl-card fgl-card-running">
         <div class="fgl-running-line"><span>Reseau</span><strong>{{ joinNetworkName }}</strong></div>
@@ -954,7 +966,7 @@ const configServerConnectionStatus = computed(() => {
     <!-- AVANCE -->
     <div class="fgl-adv">
       <button type="button" class="fgl-adv-toggle" @click="showAdvanced = !showAdvanced">
-        {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }}
+        {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }} <span class="fgl-adv-note">(pas necessaire — deja configure par defaut)</span>
         <span v-if="!clientRunning" class="fgl-badge">backend off</span>
       </button>
       <div v-show="showAdvanced" class="fgl-adv-body">
@@ -1214,4 +1226,43 @@ const configServerConnectionStatus = computed(() => {
   flex-shrink: 0;
 }
 .fgl-copy-logs { min-width: 150px; }
+
+.fgl-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fgl-node-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-end;
+  gap: 12px;
+  grid-column: 1 / -1;
+}
+.fgl-node-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fgl-dhcp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #ccc;
+  padding-bottom: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.fgl-adv-note {
+  color: #888;
+  font-weight: 400;
+  font-size: 11px;
+  margin-left: 6px;
+}
+.fgl-log-actions { display: none; }
+.fgl-copy-logs { min-width: auto; white-space: nowrap; }
 </style>

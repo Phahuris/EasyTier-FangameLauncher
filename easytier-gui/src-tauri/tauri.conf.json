@@ -29,9 +29,10 @@
     "app":  {
                 "windows":  [
                                 {
-                                    "title":  "FangameLaunchers",
-                                    "width":  800,
-                                    "height":  600
+                                    "title":  "FangameLauncher",
+                                    "width":  960,
+                                    "height":  780,
+                                    "theme":  "Dark"
                                 }
                             ],
                 "security":  {
