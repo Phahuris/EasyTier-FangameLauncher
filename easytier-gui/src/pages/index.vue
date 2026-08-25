@@ -33,6 +33,15 @@ const chatInput = ref('')
 const logLines = ref<string[]>([])
 const isBusy = ref(false)
 const showAdvanced = ref(false)
+const peerList = ref<string[]>([])
+const isNetworkActive = ref(false)
+const publicNodeUrl = ref(localStorage.getItem('fgl_public_node') || 'tcp://easytier-us.slarker.me:11010')
+const publicNodeCandidates = [
+  'tcp://easytier-us.slarker.me:11010',
+  'tcp://us01.225284.xyz:11010',
+]
+watch(publicNodeUrl, (v) => localStorage.setItem('fgl_public_node', v))
+
 
 // Champs EasyTier simplifiés (Créer)
 const hostNetworkName = ref(localStorage.getItem('fgl_net_name') || 'fangame')
@@ -291,7 +300,7 @@ function buildHostConfig(): any {
     network_secret: hostNetworkSecret.value,
     networking_method: 1,
     public_server_url: '',
-    peer_urls: [],
+    peer_urls: [publicNodeUrl.value.trim() || publicNodeCandidates[0]],
     proxy_cidrs: [],
     enable_vpn_portal: false,
     vpn_portal_listen_port: 22022,
@@ -351,6 +360,43 @@ function buildJoinConfig(): any {
   }
 }
 
+
+async function refreshPeers() {
+  peerList.value = []
+  if (!clientRunning.value) return
+  try {
+    const result = await invoke<any>('list_network_instance_ids')
+    const ids: string[] = Array.isArray(result)
+      ? result
+      : Array.isArray(result?.running_inst_ids)
+        ? result.running_inst_ids
+        : []
+    const names = new Set<string>()
+    if (pseudo.value.trim()) names.add(pseudo.value.trim())
+    for (const id of ids) {
+      try {
+        const info = await invoke<any>('collect_network_info', { inst_id: id })
+        const network = info?.info?.map?.[id]
+        if (!network) continue
+        const peers = Array.isArray(network?.peers) ? network.peers : []
+        for (const p of peers) {
+          const hn = String(p?.hostname || p?.host_name || p?.name || '').trim()
+          if (hn) names.add(hn)
+        }
+        const myHn = String(network?.my_node_info?.hostname || '').trim()
+        if (myHn) names.add(myHn)
+      } catch { /* ignore */ }
+    }
+    peerList.value = [...names]
+  } catch { /* ignore */ }
+}
+
+async function pickPublicNode(): Promise<string> {
+  // garde le nœud choisi / par défaut (test TCP trop lourd côté UI)
+  const cur = publicNodeUrl.value.trim()
+  if (cur) return cur
+  return publicNodeCandidates[0]
+}
 async function startHost() {
   if (!requirePseudo()) return
   if (!hostNetworkName.value.trim()) { addLog(s.value.needName); return }
@@ -359,7 +405,9 @@ async function startHost() {
   try {
     if (!clientRunning.value) {
       // MODE DEMO (preview navigateur sans Tauri)
-      hostShareCode.value = 'tcp://127.0.0.1:11010'
+      hostShareCode.value = (publicNodeUrl.value.trim() || publicNodeCandidates[0])
+    // code à coller : nom|secret|noeud
+    hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, hostShareCode.value].join('|')
       hostStatus.value = 'DEMO — partie simulee (pas de backend)'
       addLog('MODE DEMO : backend EasyTier absent (preview web).')
       addLog('Nom reseau: ' + hostNetworkName.value)
@@ -372,8 +420,10 @@ async function startHost() {
     const cfg = buildHostConfig()
     await remoteClient.value.run_network(cfg, true)
     instanceId.value = cfg.instance_id
-    hostStatus.value = s.value.hostRunning
-    hostShareCode.value = 'tcp://127.0.0.1:11010'
+    hostStatus.value = s.value.hostRunning`n    isNetworkActive.value = true`n    refreshPeers()
+    hostShareCode.value = (publicNodeUrl.value.trim() || publicNodeCandidates[0])
+    // code à coller : nom|secret|noeud
+    hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, hostShareCode.value].join('|')
     addLog(s.value.hostOk)
     addLog('Reseau: ' + cfg.network_name + ' | id: ' + cfg.instance_id)
     addLog('Code a partager: ' + hostShareCode.value)
@@ -392,6 +442,8 @@ async function stopHost() {
     await remoteClient.value.update_network_instance_state(instanceId.value, true)
     hostShareCode.value = ''
     hostStatus.value = s.value.noParty
+    isNetworkActive.value = false
+    peerList.value = []
     addLog('Host arrêté.')
   } catch (e: any) {
     addLog('Erreur stop: ' + (e?.message || String(e)))
@@ -402,6 +454,20 @@ async function stopHost() {
 
 async function startJoin() {
   if (!requirePseudo()) return
+  // FGL_PARSE_CODE
+  const rawPeer = joinPeerUrl.value.trim()
+  if (rawPeer.includes('|')) {
+    const parts = rawPeer.split('|')
+    if (parts.length >= 2) {
+      joinNetworkName.value = parts[0] || joinNetworkName.value
+      joinNetworkSecret.value = parts[1] || joinNetworkSecret.value
+      if (parts[2]) {
+        joinPeerUrl.value = parts[2]
+        publicNodeUrl.value = parts[2]
+      }
+    }
+  }
+
   if (!joinNetworkName.value.trim()) { addLog(s.value.needName); return }
   if (!joinPeerUrl.value.trim()) { addLog(s.value.needPeer); return }
 
@@ -420,6 +486,8 @@ async function startJoin() {
     await remoteClient.value.run_network(cfg, true)
     instanceId.value = cfg.instance_id
     joinStatus.value = 'Connecte...'
+    isNetworkActive.value = true
+    refreshPeers()
     addLog(s.value.joinOk)
     addLog('Peer: ' + joinPeerUrl.value)
   } catch (e: unknown) {
@@ -621,7 +689,11 @@ onMounted(async () => {
   }
   hostShareCode.value = ''
     hostStatus.value = s.value.noParty
+    isNetworkActive.value = false
+    peerList.value = []
   addLog('FangameLauncher démarré')
+  const peerTimer = setInterval(() => { if (isNetworkActive.value) refreshPeers() }, 3000)
+  cleanupFns.push(() => clearInterval(peerTimer))
   onUnmounted(() => cleanupFns.forEach(fn => fn()))
 })
 
@@ -742,7 +814,7 @@ const configServerConnectionStatus = computed(() => {
 </script>
 
 <template>
-  <div id="root" class="fgl-root flex flex-col">
+  <div id="root" class="fgl-root">
     <Dialog v-model:visible="aboutVisible" modal :header="t('about.title')" :style="{ width: '70%' }"><About /></Dialog>
     <Dialog v-model:visible="modeDialogVisible" modal :header="t('mode.switch_mode')" :style="{ width: '50vw' }">
       <ModeSwitcher v-model="editingMode" @uninstall-service="onUninstallService" @stop-service="onStopService" />
@@ -750,6 +822,170 @@ const configServerConnectionStatus = computed(() => {
         <Button :label="t('web.common.cancel')" icon="pi pi-times" @click="modeDialogVisible = false" text />
         <Button :label="t('web.common.save')" icon="pi pi-save" @click="onModeSave" autofocus :loading="isModeSaving" />
       </template>
+    </Dialog>
+    <Dialog v-model:visible="configServerDialogVisible" modal :header="t('config-server.title')" :style="{ width: '50vw' }">
+      <div class="flex flex-col gap-3">
+        <label>{{ t('config-server.address') }}</label>
+        <InputText v-model="(editingMode as WebClientConfig).config_server_url" />
+      </div>
+      <template #footer>
+        <Button :label="t('web.common.cancel')" @click="configServerDialogVisible = false" text />
+        <Button :label="t('web.common.save')" @click="onConfigServerSave" autofocus />
+      </template>
+    </Dialog>
+    <Menu ref="log_menu" :model="log_menu_items_popup" :popup="true" />
+
+    <div v-if="!clientRunning" class="fgl-banner-demo">
+      MODE DEMO — backend EasyTier non actif
+    </div>
+
+    <!-- BARRE ONGLETS CHROME + LANGUE -->
+    <div class="fgl-chrome">
+      <div class="fgl-chrome-tabs">
+        <button type="button" class="fgl-chrome-tab" :class="{ active: activeTab === 'create' }" @click="activeTab = 'create'">
+          {{ s.create }}
+        </button>
+        <button type="button" class="fgl-chrome-tab" :class="{ active: activeTab === 'join' }" @click="activeTab = 'join'">
+          {{ s.join }}
+        </button>
+      </div>
+      <div class="fgl-chrome-right">
+        <select class="fgl-select" :value="uiLang" @change="setLanguage(($event.target as HTMLSelectElement).value)">
+          <option value="fr">Français</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- CREATE -->
+    <div v-show="activeTab === 'create'" class="fgl-panel">
+      <div v-if="!isNetworkActive" class="fgl-card">
+        <div class="fgl-grid">
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.pseudo }}</label>
+            <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
+          </div>
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.netName }}</label>
+            <input class="fgl-input" v-model="hostNetworkName" type="text" />
+          </div>
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.netSecret }}</label>
+            <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
+          </div>
+          <div class="fgl-field fgl-field-wide">
+            <label class="fgl-label">Nœud public</label>
+            <input class="fgl-input" v-model="publicNodeUrl" type="text" placeholder="tcp://easytier-us.slarker.me:11010" />
+          </div>
+        </div>
+        <div class="fgl-actions">
+          <button type="button" class="fgl-btn green" :disabled="isBusy" @click="startHost">{{ s.startHost }}</button>
+        </div>
+      </div>
+      <div v-else class="fgl-card fgl-card-running">
+        <div class="fgl-running-line"><span>Réseau</span><strong>{{ hostNetworkName }}</strong></div>
+        <div class="fgl-running-line"><span>Nœud</span><strong>{{ publicNodeUrl }}</strong></div>
+        <div class="fgl-running-line" v-if="hostShareCode">
+          <span>Code</span>
+          <input class="fgl-input fgl-share" :value="hostShareCode" readonly @focus="($event.target as HTMLInputElement).select()" />
+          <button type="button" class="fgl-btn" @click="copyShareCode">Copier</button>
+        </div>
+        <div class="fgl-actions">
+          <button type="button" class="fgl-btn red" :disabled="isBusy" @click="stopHost">{{ s.stopHost }}</button>
+        </div>
+        <div class="fgl-status">{{ hostStatus }}</div>
+      </div>
+    </div>
+
+    <!-- JOIN -->
+    <div v-show="activeTab === 'join'" class="fgl-panel">
+      <div v-if="!isNetworkActive" class="fgl-card">
+        <div class="fgl-grid">
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.pseudo }}</label>
+            <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
+          </div>
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.netName }}</label>
+            <input class="fgl-input" v-model="joinNetworkName" type="text" />
+          </div>
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.netSecret }}</label>
+            <input class="fgl-input" v-model="joinNetworkSecret" type="password" />
+          </div>
+          <div class="fgl-field fgl-field-wide">
+            <label class="fgl-label">{{ s.peerUrl }} / Nœud public</label>
+            <input class="fgl-input" v-model="joinPeerUrl" type="text" :placeholder="s.peerPh" />
+          </div>
+        </div>
+        <div class="fgl-actions">
+          <button type="button" class="fgl-btn blue" :disabled="isBusy" @click="startJoin">{{ s.doJoin }}</button>
+        </div>
+        <div class="fgl-hint">Colle le code de partie (nom|secret|noeud) dans le champ nœud, ou remplis à la main.</div>
+      </div>
+      <div v-else class="fgl-card fgl-card-running">
+        <div class="fgl-running-line"><span>Réseau</span><strong>{{ joinNetworkName }}</strong></div>
+        <div class="fgl-running-line"><span>Nœud</span><strong>{{ joinPeerUrl || publicNodeUrl }}</strong></div>
+        <div class="fgl-actions">
+          <button type="button" class="fgl-btn red" :disabled="isBusy" @click="stopHost">{{ s.stopHost }}</button>
+        </div>
+        <div class="fgl-status">{{ joinStatus }}</div>
+      </div>
+    </div>
+
+    <!-- AVANCÉ -->
+    <div class="fgl-adv">
+      <button type="button" class="fgl-adv-toggle" @click="showAdvanced = !showAdvanced">
+        {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }}
+        <span v-if="!clientRunning" class="fgl-badge">backend off</span>
+      </button>
+      <div v-show="showAdvanced" class="fgl-adv-body">
+        <RemoteManagement
+          v-if="clientRunning"
+          :client="remoteClient"
+          v-model:instance-id="instanceId"
+        />
+        <div v-else class="fgl-adv-off">
+          Backend OFF — options EasyTier complètes disponibles avec Tauri.
+        </div>
+        <Menubar :model="setting_menu_items" breakpoint="795px" class="fgl-menubar">
+          <template #item="{ item, props }">
+            <a v-if="item.key === 'logging_menu'" v-bind="props.action" @click="toggle_log_menu">
+              <span :class="item.icon" /><span class="p-menubar-item-label">{{ getLabel(item) }}</span>
+            </a>
+            <a v-else v-bind="props.action" @click="item.command">
+              <span :class="item.icon" /><span class="p-menubar-item-label">{{ getLabel(item) }}</span>
+            </a>
+          </template>
+        </Menubar>
+      </div>
+    </div>
+
+    <!-- JOUEURS + LOGS / CHAT -->
+    <div class="fgl-bottom">
+      <div class="fgl-peers">
+        <div class="fgl-label">Joueurs</div>
+        <div class="fgl-peerbox">
+          <div v-if="peerList.length === 0" class="fgl-peer-empty">—</div>
+          <div v-for="(name, i) in peerList" :key="i" class="fgl-peer">{{ name }}</div>
+        </div>
+      </div>
+      <div class="fgl-logs-wrap">
+        <div class="fgl-label">{{ s.logsChat }}</div>
+        <div id="fgl-logbox" class="fgl-logbox">
+          <div v-for="(line, i) in logLines" :key="i" class="fgl-logline">{{ line }}</div>
+        </div>
+        <div class="fgl-chatrow">
+          <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
+          <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>
+        </div>
+        <div class="fgl-log-actions">
+          <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">Copier Logs / Chat</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
     </Dialog>
     <Dialog v-model:visible="configServerDialogVisible" modal :header="t('config-server.title')" :style="{ width: '50vw' }">
       <div class="flex flex-col gap-3">
@@ -909,13 +1145,13 @@ const configServerConnectionStatus = computed(() => {
 .fgl-root {
   height: 100vh;
   width: 100vw;
-  background: #1e1e1e;
-  color: #fff;
+  background: #121212;
+  color: #e8e8e8;
   overflow: hidden;
   font-size: 13px;
   display: flex;
   flex-direction: column;
-  font-family: "Segoe UI", Tahoma, sans-serif;
+  font-family: "Segoe UI", system-ui, sans-serif;
 }
 .fgl-banner-demo {
   background: #5d4037;
@@ -925,163 +1161,140 @@ const configServerConnectionStatus = computed(() => {
   text-align: center;
   flex-shrink: 0;
 }
-.fgl-header {
+
+/* Onglets style Chrome */
+.fgl-chrome {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  background: #1e1e1e;
-  border-bottom: 1px solid #333;
+  align-items: stretch;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
   flex-shrink: 0;
+  min-height: 40px;
 }
-.fgl-title {
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #4fc3f7;
+.fgl-chrome-tabs {
+  display: flex;
+  flex: 1;
+  gap: 0;
+  padding: 6px 6px 0 8px;
 }
-.fgl-lang {
+.fgl-chrome-tab {
+  flex: 0 1 auto;
+  min-width: 140px;
+  max-width: 220px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #252525;
+  color: #9e9e9e;
+  border: 1px solid #333;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  margin-right: 2px;
+}
+.fgl-chrome-tab:hover { color: #ddd; background: #2c2c2c; }
+.fgl-chrome-tab.active {
+  background: #121212;
+  color: #fff;
+  border-color: #3a3a3a;
+  position: relative;
+  z-index: 1;
+}
+.fgl-chrome-right {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: #ddd;
-  font-size: 12px;
-}
-.fgl-block {
-  padding: 8px 12px;
-  background: #1e1e1e;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
+  padding: 0 12px;
   gap: 8px;
+}
+
+.fgl-panel {
+  padding: 12px 14px 8px;
+  background: #121212;
   flex-shrink: 0;
 }
-.fgl-block .fgl-input { max-width: 220px; }
+.fgl-card {
+  background: #1c1c1c;
+  border: 1px solid #2e2e2e;
+  border-radius: 10px;
+  padding: 14px;
+}
+.fgl-card-running { border-color: #2e7d32; }
+.fgl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 12px;
+}
+.fgl-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fgl-field-wide { grid-column: 1 / -1; }
 .fgl-label {
   font-size: 12px;
-  color: #fff;
+  color: #b0b0b0;
   font-weight: 600;
-  white-space: nowrap;
 }
 .fgl-input {
   background: #252525;
   color: #fff;
-  border: 1px solid #444;
-  border-radius: 3px;
-  padding: 6px 8px;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 8px 10px;
   font-size: 13px;
-  height: 30px;
+  height: 34px;
   box-sizing: border-box;
   width: 100%;
-  min-width: 0;
 }
-.fgl-input:focus { outline: 1px solid #4fc3f7; }
+.fgl-input:focus { outline: none; border-color: #4fc3f7; }
 .fgl-select {
   background: #252525;
-  color: #fff;
-  border: 1px solid #444;
-  border-radius: 3px;
+  color: #eee;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
   padding: 4px 8px;
   font-size: 12px;
   height: 30px;
 }
-
-/* Onglets façon Notebook / Chrome-like (main.py) */
-.fgl-tabs {
+.fgl-actions {
   display: flex;
-  padding: 8px 12px 0;
-  background: #1e1e1e;
-  flex-shrink: 0;
-  gap: 2px;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: flex-end;
 }
-.fgl-tab {
-  flex: 1;
-  padding: 8px 12px;
-  font-size: 13px;
-  font-weight: 700;
-  background: #252525;
-  color: #bbb;
-  border: 1px solid #333;
-  border-bottom: none;
-  border-radius: 6px 6px 0 0;
-  cursor: pointer;
-}
-.fgl-tab.active {
-  color: #fff;
-  background: #2e7d32;
-  border-color: #43a047;
-}
-.fgl-tab:last-child.active {
-  background: #1565c0;
-  border-color: #1e88e5;
-}
-
-.fgl-panel {
-  padding: 14px 12px 12px;
-  background: #1e1e1e;
-  border-top: 1px solid #333;
-  flex-shrink: 0;
-}
-.fgl-panel-title {
-  text-align: center;
-  font-size: 16px;
-  font-weight: 700;
-  color: #fff;
-  margin-bottom: 12px;
-}
-.fgl-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: flex-end;
-  justify-content: center;
-}
-.fgl-field {
-  flex: 1 1 140px;
-  min-width: 120px;
-  max-width: 220px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.fgl-field-peer { flex: 1 1 200px; max-width: 280px; }
-.fgl-field-btns { flex: 0 0 auto; max-width: none; }
-.fgl-btns { display: flex; gap: 8px; }
-
 .fgl-btn {
-  background: #252525;
+  background: #2a2a2a;
   color: #fff;
-  border: 1px solid #555;
-  padding: 6px 14px;
-  border-radius: 3px;
-  font-size: 12px;
+  border: 1px solid #444;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  height: 30px;
-  white-space: nowrap;
+  height: 34px;
 }
 .fgl-btn:hover { filter: brightness(1.12); }
-.fgl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.fgl-btn.green { background: #43a047; border-color: #66bb6a; }
-.fgl-btn.blue { background: #1e88e5; border-color: #42a5f5; }
-.fgl-btn.red { background: #e53935; border-color: #ef5350; }
-
-.fgl-status { color: #4fc3f7; font-size: 12px; text-align: center; }
-.fgl-status-line {
+.fgl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.fgl-btn.green { background: #2e7d32; border-color: #43a047; }
+.fgl-btn.blue { background: #1565c0; border-color: #1e88e5; }
+.fgl-btn.red { background: #c62828; border-color: #e53935; }
+.fgl-status { color: #4fc3f7; font-size: 12px; margin-top: 8px; text-align: center; }
+.fgl-hint { font-size: 11px; color: #888; margin-top: 8px; }
+.fgl-running-line {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
 }
-.fgl-share-label { font-size: 12px; color: #ccc; }
-.fgl-share { max-width: 280px; flex: 1 1 180px; color: #4fc3f7; }
+.fgl-running-line span { color: #888; min-width: 56px; }
+.fgl-share { flex: 1; max-width: 420px; color: #4fc3f7; }
 
-.fgl-adv { border-top: 1px solid #333; background: #181818; flex-shrink: 0; }
+.fgl-adv {
+  border-top: 1px solid #2a2a2a;
+  background: #161616;
+  flex-shrink: 0;
+}
 .fgl-adv-toggle {
   width: 100%;
   text-align: left;
-  padding: 6px 12px;
+  padding: 8px 14px;
   background: transparent;
   border: none;
   color: #aaa;
@@ -1096,33 +1309,69 @@ const configServerConnectionStatus = computed(() => {
   padding: 0 5px;
   border-radius: 3px;
 }
-.fgl-adv-body { padding: 6px; max-height: 18vh; overflow-y: auto; }
+.fgl-adv-body { padding: 6px 10px 10px; max-height: 28vh; overflow-y: auto; }
 .fgl-adv-off { color: #888; padding: 8px; font-size: 12px; }
+.fgl-menubar {
+  background: #1a1a1a !important;
+  border: 1px solid #333;
+  border-radius: 6px;
+  margin-top: 8px;
+}
 
 .fgl-bottom {
   flex: 1;
-  min-height: 80px;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px 12px;
+  background: #121212;
+  border-top: 1px solid #2a2a2a;
+}
+.fgl-peers {
+  width: 160px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: 8px 12px 10px;
-  background: #1e1e1e;
-  border-top: 1px solid #333;
+  min-height: 0;
+}
+.fgl-peerbox {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  background: #0d0d0d;
+  border: 1px solid #2e2e2e;
+  border-radius: 8px;
+  padding: 8px;
+}
+.fgl-peer {
+  padding: 4px 6px;
+  border-radius: 4px;
+  margin-bottom: 2px;
+  background: #1c1c1c;
+  font-size: 12px;
+}
+.fgl-peer-empty { color: #555; font-size: 12px; }
+.fgl-logs-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 .fgl-logbox {
   flex: 1;
   min-height: 90px;
   overflow-y: auto;
-  background: #121212;
-  border: 1px solid #333;
-  padding: 7px 8px;
-  font-family: Consolas, monospace;
+  background: #0d0d0d;
+  border: 1px solid #2e2e2e;
+  border-radius: 8px;
+  padding: 8px;
+  font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 12px;
-  color: #e0e0e0;
-  margin: 5px 0 6px;
+  color: #d0d0d0;
+  margin: 4px 0 6px;
 }
 .fgl-logline { white-space: pre-wrap; word-break: break-all; }
-
 .fgl-chatrow {
   display: flex;
   gap: 6px;
@@ -1130,25 +1379,13 @@ const configServerConnectionStatus = computed(() => {
 }
 .fgl-chatrow .flex1,
 .fgl-chatrow .fgl-input { flex: 1; }
-
 .fgl-log-actions {
   display: flex;
   justify-content: flex-end;
   margin-top: 6px;
   flex-shrink: 0;
 }
-.fgl-copy-logs {
-  min-width: 150px;
-  background: #252525;
-  border-color: #555;
-}
-.fgl-copy-logs:hover { background: #333; }
-
-.fgl-menubar {
-  background: #1e1e1e !important;
-  border-top: 1px solid #333;
-  flex-shrink: 0;
-}
+.fgl-copy-logs { min-width: 150px; }
 </style>
 
 <style>
