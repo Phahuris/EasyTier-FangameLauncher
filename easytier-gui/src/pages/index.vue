@@ -483,7 +483,7 @@ async function stopHost() {
     isNetworkActive.value = false
     peerList.value = []
     isBusy.value = false
-    addLog('Host arrete.')
+    addLog('Host arrêté.')
   }
 }
 async function startJoin() {
@@ -973,7 +973,7 @@ const configServerConnectionStatus = computed(() => {
     <!-- AVANCE -->
     <div class="fgl-adv">
       <button type="button" class="fgl-adv-toggle" @click="showAdvanced = !showAdvanced">
-        {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }} <span class="fgl-adv-note">(pas necessaire - deja configure par defaut)</span>
+        {{ showAdvanced ? '▼' : '▶' }} {{ s.advanced }} <span class="fgl-adv-note">(pas nécessaire — déjà configuré par défaut)</span>
         <span v-if="!clientRunning" class="fgl-badge">backend off</span>
       </button>
       <div v-show="showAdvanced" class="fgl-adv-body">
@@ -1015,7 +1015,7 @@ const configServerConnectionStatus = computed(() => {
         </div>
         <div class="fgl-chatrow">
           <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
-          <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>`r`n          <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">Copier Logs / Chat</button>
+          <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>          <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">Copier Logs / Chat</button>
         </div>
       </div>
     </div>
