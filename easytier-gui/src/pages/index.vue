@@ -45,13 +45,13 @@ const publicNodeCandidates = [
 watch(publicNodeUrl, (v) => localStorage.setItem('fgl_public_node', v))
 
 
-// Champs EasyTier simplifi├®s (Cr├®er)
+// Champs EasyTier simplifiés (Créer)
 const hostNetworkName = ref(localStorage.getItem('fgl_net_name') || 'fangame')
 const hostNetworkSecret = ref(localStorage.getItem('fgl_net_secret') || '')
 const hostStatus = ref('')
 const hostShareCode = ref('')
 
-// Champs EasyTier simplifi├®s (Rejoindre)
+// Champs EasyTier simplifiés (Rejoindre)
 const joinNetworkName = ref(localStorage.getItem('fgl_net_name') || 'fangame')
 const joinNetworkSecret = ref(localStorage.getItem('fgl_net_secret') || '')
 const joinPeerUrl = ref('')
@@ -100,14 +100,14 @@ async function copyLogsChat() {
 
   try {
     await writeText(content)
-    addLog('Logs / Chat copi├®s')
+    addLog('Logs / Chat copiés')
   }
   catch (e) {
     console.error('[LOGS] Copie impossible:', e)
 
     try {
       await navigator.clipboard.writeText(content)
-      addLog('Logs / Chat copi├®s')
+      addLog('Logs / Chat copiés')
     }
     catch (e2) {
       console.error('[LOGS] Clipboard navigateur impossible:', e2)
@@ -133,7 +133,7 @@ async function sendChat() {
 
     /*
      * list_network_instance_ids() renvoie un objet EasyTier.
-     * On r├®cup├¿re explicitement running_inst_ids.
+     * On récupère explicitement running_inst_ids.
      */
     const result = await invoke<any>('list_network_instance_ids')
 
@@ -202,7 +202,7 @@ async function sendChat() {
     console.log('[CHAT] Peers EasyTier:', peers)
 
     if (peers.length === 0) {
-      addLog('[Chat] Aucun joueur EasyTier trouv├®')
+      addLog('[Chat] Aucun joueur EasyTier trouvé')
       return
     }
 
@@ -213,7 +213,7 @@ async function sendChat() {
     })
   }
   catch (e) {
-    addLog('Chat r├®seau EasyTier: ' + String(e))
+    addLog('Chat réseau EasyTier: ' + String(e))
     console.error('[CHAT]', e)
   }
 }
@@ -222,25 +222,25 @@ const uiStrings: Record<string, Record<string, string>> = {
   fr: {
     title: 'FangameLauncher',
     pseudo: 'Ton pseudo',
-    create: 'Cr├®er une partie',
+    create: 'Créer une partie',
     join: 'Rejoindre une partie',
-    netName: 'Nom du r├®seau',
-    netSecret: 'Mot de passe r├®seau (secret)',
+    netName: 'Nom du réseau',
+    netSecret: 'Mot de passe réseau (secret)',
     peerUrl: 'Adresse du serveur (peer)',
     peerPh: 'ex: tcp://IP:11010',
-    startHost: 'D├®marrer la partie',
-    stopHost: 'Arr├¬ter',
+    startHost: 'Démarrer la partie',
+    stopHost: 'Arrêter',
     doJoin: 'Rejoindre',
     language: 'Langue',
     logsChat: 'Logs / Chat',
     send: 'Envoyer',
-    advanced: 'Options avanc├®es EasyTier',
+    advanced: 'Options avancées EasyTier',
     needPseudo: 'Pseudo obligatoire.',
-    needName: 'Nom du r├®seau obligatoire.',
+    needName: 'Nom du réseau obligatoire.',
     needPeer: 'Adresse du serveur obligatoire.',
-    noClient: 'Client EasyTier non connect├® (il faut le backend Tauri / easytier-core).',
-    hostOk: 'R├®seau host d├®marr├®.',
-    joinOk: 'Connexion au r├®seau lanc├®e.',
+    noClient: 'Client EasyTier non connecté (il faut le backend Tauri / easytier-core).',
+    hostOk: 'Réseau host démarré.',
+    joinOk: 'Connexion au réseau lancée.',
     hostRunning: 'Partie active (host)',
     noParty: 'Aucune partie',
   },
@@ -276,7 +276,7 @@ async function setLanguage(lang: string) {
   uiLang.value = lang
   localStorage.setItem('lang', lang)
   try { await I18nUtils.loadLanguageAsync('en') } catch (e) { console.error(e) }
-  addLog(lang === 'fr' ? 'Langue : Fran├ºais' : 'Language : English')
+  addLog(lang === 'fr' ? 'Langue : Français' : 'Language : English')
 }
 
 function requirePseudo(): boolean {
@@ -668,7 +668,7 @@ async function initWithMode(mode: Mode) {
   currentMode.value = mode
   saveMode(mode)
   clientRunning.value = await isClientRunning().catch(() => false)
-  addLog(clientRunning.value ? 'EasyTier pr├¬t' : 'Backend non disponible (mode navigateur)')
+  addLog(clientRunning.value ? 'EasyTier prêt' : 'Backend non disponible (mode navigateur)')
 }
 
 onMounted(async () => {
@@ -722,7 +722,7 @@ onMounted(async () => {
   }
   hostShareCode.value = ''
     hostStatus.value = s.value.noParty
-  addLog('FangameLauncher d├®marr├®')
+  addLog('FangameLauncher démarré')
   onUnmounted(() => cleanupFns.forEach(fn => fn()))
 })
 
@@ -889,7 +889,7 @@ const configServerConnectionStatus = computed(() => {
       </div>
       <div class="fgl-chrome-right">
         <select class="fgl-select" :value="uiLang" @change="setLanguage(($event.target as HTMLSelectElement).value)">
-          <option value="fr">Francais</option>
+          <option value="fr">Français</option>
           <option value="en">English</option>
         </select>
       </div>
