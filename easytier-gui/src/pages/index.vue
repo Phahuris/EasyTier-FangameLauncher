@@ -30,11 +30,13 @@ const configServerConnected = ref(false)
 const activeTab = ref<'create' | 'join'>('create')
 const pseudo = ref(localStorage.getItem('fgl_pseudo') || '')
 const chatInput = ref('')
-const logLines = ref<string[]>([])
+const logLines = ref<{ ts: string, text: string, kind: string }[]>([])
 const isBusy = ref(false)
 const showAdvanced = ref(false)
 
 const peerList = ref<string[]>([])
+const peerIps = ref<string[]>([])
+const knownPeerNames = ref<string[]>([])
 const isNetworkActive = ref(false)
 const useDhcp = ref(true)
 const publicNodeUrl = ref(localStorage.getItem('fgl_public_node') || 'tcp://easytier-us.slarker.me:11010')
@@ -67,14 +69,28 @@ watch(hostNetworkSecret, (v) => {
   joinNetworkSecret.value = v
 })
 
-function addLog(msg: string) {
+function addLog(msg: string, kind: string = 'info') {
   const ts = new Date().toLocaleTimeString()
-  logLines.value.push(`[${ts}] ${msg}`)
+  logLines.value.push({ ts, text: msg, kind })
   if (logLines.value.length > 400) logLines.value.shift()
   nextTick(() => {
     const el = document.getElementById('fgl-logbox')
     if (el) el.scrollTop = el.scrollHeight
   })
+}
+
+function logShareCode(code: string) {
+  const parts = String(code || '').split('|')
+  if (parts.length >= 3) {
+    addLog('--- Code de partie ---', 'code')
+    addLog('Nom reseau : ' + parts[0], 'code')
+    addLog('Mot de passe : ' + parts[1], 'code')
+    addLog('Noeud public : ' + parts[2], 'code')
+    addLog('(ligne complete ci-dessous)', 'code')
+    addLog(code, 'code')
+  } else {
+    addLog('Code : ' + code, 'code')
+  }
 }
 
 function copyShareCode() {
@@ -91,7 +107,7 @@ function copyShareCode() {
 }
 
 async function copyLogsChat() {
-  const content = logLines.value.join('\n')
+  const content = logLines.value.map(l => '[' + l.ts + '] ' + l.text).join('\n')
 
   if (!content) {
     addLog('Logs / Chat vide')
@@ -115,108 +131,7 @@ async function copyLogsChat() {
     }
   }
 }
-async function sendChat() {
-  const msg = chatInput.value.trim()
 
-  if (!msg) {
-    return
-  }
-
-  const name = pseudo.value.trim() || 'Anonyme'
-
-  chatInput.value = ''
-
-  addLog(`${name} : ${msg}`)
-
-  try {
-    await invoke('chat_start')
-
-    /*
-     * list_network_instance_ids() renvoie un objet EasyTier.
-     * On récupère explicitement running_inst_ids.
-     */
-    const result = await invoke<any>('list_network_instance_ids')
-
-    const ids: string[] = Array.isArray(result)
-      ? result
-      : Array.isArray(result?.running_inst_ids)
-        ? result.running_inst_ids
-        : []
-
-    console.log('[CHAT] Instances EasyTier:', ids)
-
-    let peers: string[] = []
-
-    for (const id of ids) {
-      try {
-        const info = await invoke<any>('collect_network_info', {
-          inst_id: id
-        })
-
-        const network = info?.info?.map?.[id]
-
-        if (!network) {
-          continue
-        }
-
-        const myIp =
-          network?.my_node_info?.virtual_ipv4 ||
-          network?.my_node_info?.virtual_ip ||
-          ''
-
-        const networkPeers = Array.isArray(network?.peers)
-          ? network.peers
-          : []
-
-        for (const peer of networkPeers) {
-          if (!peer || typeof peer !== 'object') {
-            continue
-          }
-
-          const ip =
-            peer.virtual_ipv4 ||
-            peer.virtual_ip ||
-            peer.ipv4_addr ||
-            peer.ip ||
-            ''
-
-          if (!ip) {
-            continue
-          }
-
-          const cleanIp = String(ip).split('/')[0].trim()
-          const cleanMyIp = String(myIp).split('/')[0].trim()
-
-          if (cleanIp && cleanIp !== cleanMyIp) {
-            peers.push(cleanIp)
-          }
-        }
-      }
-      catch (e) {
-        console.warn('[CHAT] Impossible de lire les peers EasyTier:', e)
-      }
-    }
-
-    peers = [...new Set(peers)]
-
-    console.log('[CHAT] Peers EasyTier:', peers)
-
-    if (peers.length === 0) {
-      addLog('[Chat] Aucun joueur EasyTier trouvé')
-      return
-    }
-
-    await invoke('chat_send', {
-      pseudo: name,
-      text: msg,
-      peers
-    })
-  }
-  catch (e) {
-    addLog('Chat réseau EasyTier: ' + String(e))
-    console.error('[CHAT]', e)
-  }
-}
 const uiLang = ref(localStorage.getItem('lang') || 'fr')
 const uiStrings: Record<string, Record<string, string>> = {
   fr: {
@@ -363,36 +278,122 @@ function buildJoinConfig(): any {
 }
 
 
+
+
+function extractIp(v: any): string {
+  if (!v) return ''
+  if (typeof v === 'string') return v.split('/')[0].trim()
+  if (typeof v === 'object') {
+    const s = v.address || v.addr || v.ip || v.ipv4 || v.virtual_ipv4 || ''
+    return String(s).split('/')[0].trim()
+  }
+  return ''
+}
+
+function extractHostname(p: any): string {
+  if (!p || typeof p !== 'object') return ''
+  return String(p.hostname || p.host_name || p.name || p?.route?.hostname || p?.peer?.hostname || '').trim()
+}
+
+function isPublicServerName(name: string): boolean {
+  const n = (name || '').toLowerCase()
+  return !name || n.includes('publicserver') || n === 'server' || n.startsWith('public')
+}
+
+function collectPeersFromNetwork(network: any): { names: string[], ips: string[] } {
+  const names = new Set<string>()
+  const ips = new Set<string>()
+  if (!network || typeof network !== 'object') return { names: [], ips: [] }
+  const myIp = extractIp(network?.my_node_info?.virtual_ipv4 || network?.my_node_info?.virtual_ip || network?.my_node_info?.ipv4_addr)
+  const myHn = String(network?.my_node_info?.hostname || '').trim()
+  if (myHn && !isPublicServerName(myHn)) names.add(myHn)
+  const buckets: any[] = []
+  if (Array.isArray(network.peers)) buckets.push(...network.peers)
+  if (Array.isArray(network.peer_route_pairs)) buckets.push(...network.peer_route_pairs)
+  if (Array.isArray(network.routes)) buckets.push(...network.routes)
+  if (network.peers && typeof network.peers === 'object' && !Array.isArray(network.peers)) {
+    buckets.push(...Object.values(network.peers))
+  }
+  for (const item of buckets) {
+    if (!item || typeof item !== 'object') continue
+    const route = item.route || item
+    const hn = extractHostname(item) || extractHostname(route)
+    const ip = extractIp(item.virtual_ipv4 || item.virtual_ip || item.ipv4_addr || item.ipv4 || item.ip || route.virtual_ipv4 || route.ipv4_addr || route.ipv4 || route.ip)
+    if (hn && !isPublicServerName(hn)) names.add(hn)
+    if (ip && ip !== myIp) ips.add(ip)
+  }
+  return { names: [...names], ips: [...ips] }
+}
+
+async function sendChat() {
+  const msg = chatInput.value.trim()
+  if (!msg) return
+  const name = pseudo.value.trim() || 'Anonyme'
+  chatInput.value = ''
+  addLog(name + ' : ' + msg, 'chat')
+  if (!clientRunning.value || !isNetworkActive.value) return
+  try {
+    await invoke('chat_start')
+    await refreshPeers()
+    let peers = [...peerIps.value]
+    if (peers.length === 0) {
+      const result = await invoke<any>('list_network_instance_ids')
+      const ids: string[] = Array.isArray(result) ? result : Array.isArray(result?.running_inst_ids) ? result.running_inst_ids : []
+      for (const id of ids) {
+        try {
+          const info = await invoke<any>('collect_network_info', { inst_id: id })
+          const network = info?.info?.map?.[id] || info?.map?.[id] || info
+          peers.push(...collectPeersFromNetwork(network).ips)
+        } catch {}
+      }
+      peers = [...new Set(peers)]
+    }
+    if (peers.length === 0) {
+      addLog('Message local (aucun autre joueur pour l instant)', 'info')
+      return
+    }
+    await invoke('chat_send', { pseudo: name, text: msg, peers })
+  } catch (e) {
+    addLog('[Chat] Envoi reseau: ' + String(e), 'warn')
+  }
+}
+
 async function refreshPeers() {
-  peerList.value = []
-  if (!clientRunning.value) return
+  if (!clientRunning.value) {
+    peerList.value = pseudo.value.trim() ? [pseudo.value.trim()] : []
+    peerIps.value = []
+    return
+  }
   try {
     const result = await invoke<any>('list_network_instance_ids')
-    const ids: string[] = Array.isArray(result)
-      ? result
-      : Array.isArray(result?.running_inst_ids)
-        ? result.running_inst_ids
-        : []
-    const names = new Set<string>()
-    if (pseudo.value.trim()) names.add(pseudo.value.trim())
+    const ids: string[] = Array.isArray(result) ? result : Array.isArray(result?.running_inst_ids) ? result.running_inst_ids : []
+    const allNames = new Set<string>()
+    const allIps = new Set<string>()
+    if (pseudo.value.trim()) allNames.add(pseudo.value.trim())
     for (const id of ids) {
       try {
         const info = await invoke<any>('collect_network_info', { inst_id: id })
-        const network = info?.info?.map?.[id]
-        if (!network) continue
-        const peers = Array.isArray(network?.peers) ? network.peers : []
-        for (const p of peers) {
-          const hn = String(p?.hostname || p?.host_name || p?.name || '').trim()
-          if (hn) names.add(hn)
-        }
-        const myHn = String(network?.my_node_info?.hostname || '').trim()
-        if (myHn) names.add(myHn)
-      } catch { /* ignore */ }
+        const network = info?.info?.map?.[id] || info?.map?.[id] || info
+        const { names, ips } = collectPeersFromNetwork(network)
+        names.forEach(n => allNames.add(n))
+        ips.forEach(ip => allIps.add(ip))
+      } catch {}
     }
-    peerList.value = [...names]
-  } catch { /* ignore */ }
+    const prev = new Set(knownPeerNames.value.map(x => x.toLowerCase()))
+    const me = (pseudo.value.trim() || '').toLowerCase()
+    for (const n of allNames) {
+      const key = n.toLowerCase()
+      if (key && key !== me && !prev.has(key) && knownPeerNames.value.length > 0) {
+        addLog(n + ' a rejoint la partie', 'join')
+      }
+    }
+    knownPeerNames.value = [...allNames]
+    peerList.value = [...allNames]
+    peerIps.value = [...allIps]
+  } catch {
+    if (pseudo.value.trim()) peerList.value = [pseudo.value.trim()]
+  }
 }
-
 async function pickPublicNode(): Promise<string> {
   const list = [
     publicNodeUrl.value.trim(),
@@ -451,10 +452,11 @@ async function startHost() {
     instanceId.value = cfg.instance_id
     hostStatus.value = s.value.hostRunning
     isNetworkActive.value = true
+    addLog('Connecte au reseau EasyTier', 'ok')
     refreshPeers()
     hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
     addLog(s.value.hostOk)
-    addLog('Code a partager: ' + hostShareCode.value)
+    logShareCode(hostShareCode.value)
   } catch (e: unknown) {
     addLog('Erreur host: ' + String(e))
     hostStatus.value = 'Erreur'
@@ -520,6 +522,7 @@ async function startJoin() {
     instanceId.value = cfg.instance_id
     joinStatus.value = 'Connecte...'
     isNetworkActive.value = true
+    addLog('Connecte au reseau EasyTier', 'ok')
     refreshPeers()
     addLog(s.value.joinOk)
     addLog('Peer: ' + joinPeerUrl.value)
@@ -1011,7 +1014,7 @@ const configServerConnectionStatus = computed(() => {
       <div class="fgl-logs-wrap">
         <div class="fgl-label">{{ s.logsChat }}</div>
         <div id="fgl-logbox" class="fgl-logbox">
-          <div v-for="(line, i) in logLines" :key="i" class="fgl-logline">{{ line }}</div>
+          <div v-for="(line, i) in logLines" :key="i" class="fgl-logline" :class="'fgl-log-' + (line.kind || 'info')"><span class="fgl-log-ts">[{{ line.ts }}]</span> {{ line.text }}</div>
         </div>
         <div class="fgl-chatrow">
           <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
@@ -1269,4 +1272,13 @@ const configServerConnectionStatus = computed(() => {
 }
 /* log-actions removed */
 .fgl-copy-logs { min-width: auto; white-space: nowrap; }
+
+.fgl-logline { white-space: pre-wrap; word-break: break-all; margin: 1px 0; }
+.fgl-log-ts { opacity: 0.65; margin-right: 4px; }
+.fgl-log-info { color: #d0d0d0; }
+.fgl-log-ok { color: #69f0ae; font-weight: 600; }
+.fgl-log-join { color: #40c4ff; font-weight: 600; }
+.fgl-log-code { color: #ffd54f; font-family: Consolas, monospace; }
+.fgl-log-chat { color: #ea80fc; }
+.fgl-log-warn { color: #ff8a65; }
 </style>
