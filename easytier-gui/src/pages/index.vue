@@ -132,6 +132,16 @@ async function copyLogsChat() {
   }
 }
 
+
+function normalizeInstIds(listed: any): string[] {
+  const raw: any[] = Array.isArray(listed)
+    ? listed
+    : (Array.isArray(listed?.running_inst_ids) ? listed.running_inst_ids : [])
+  return raw.map((id: any) => {
+    if (typeof id === 'string') return id
+    try { return Utils.UuidToStr(id) } catch { return String(id ?? '') }
+  }).filter((s: string) => !!s)
+}
 const uiLang = ref(localStorage.getItem('lang') || 'fr')
 const uiStrings: Record<string, Record<string, string>> = {
   fr: {
@@ -353,152 +363,7 @@ async function getRunningNetworkDetails(): Promise<any[]> {
     // Voie officielle GUI (comme RemoteManagement)
     if (remoteClient?.value?.list_network_instance_ids && remoteClient?.value?.get_network_info) {
       const listed = await remoteClient.value.list_network_instance_ids()
-      const ids: string[] = Array.isArray(listed)
-        ? listed
-        : Array.isArray(listed?.running_inst_ids)
-          ? listed.running_inst_ids
-          : []
-      for (const id of ids) {
-        try {
-          const net = await remoteClient.value.get_network_info(id)
-          if (net) networks.push(net)
-        } catch { /* ignore */ }
-      }
-      if (networks.length) return networks
-    }
-  } catch { /* fallback invoke */ }
-
-  try {
-    const result = await invoke<any>('list_network_instance_ids')
-    const ids: string[] = Array.isArray(result)
-      ? result
-      : Array.isArray(result?.running_inst_ids)
-        ? result.running_inst_ids
-        : []
-    for (const id of ids) {
-      try {
-        const info = await invoke<any>('collect_network_info', { inst_id: id })
-        const net = info?.info?.map?.[id] || info?.map?.[id] || info
-        if (net) networks.push(net)
-      } catch { /* ignore */ }
-    }
-  } catch { /* ignore */ }
-  return networks
-}
-
-async function refreshPeers() {
-  if (!clientRunning.value) {
-    peerList.value = pseudo.value.trim() ? [pseudo.value.trim()] : []
-    peerIps.value = []
-    return
-  }
-  try {
-    const allNames = new Set<string>()
-    const allIps = new Set<string>()
-    if (pseudo.value.trim()) allNames.add(pseudo.value.trim())
-
-    const networks = await getRunningNetworkDetails()
-    for (const network of networks) {
-      const { names, ips } = collectPeersFromNetwork(network)
-      names.forEach(n => allNames.add(n))
-      ips.forEach(ip => allIps.add(ip))
-    }
-
-    const prev = new Set(knownPeerNames.value.map(x => x.toLowerCase()))
-    const me = (pseudo.value.trim() || '').toLowerCase()
-    for (const n of allNames) {
-      const key = n.toLowerCase()
-      if (key && key !== me && !prev.has(key) && knownPeerNames.value.length > 0) {
-        addLog(n + ' a rejoint la partie', 'join')
-      }
-    }
-
-    // Log debug utile une fois quand on detecte quelqu un
-    if (allIps.size > 0 && peerIps.value.length === 0) {
-      addLog('Joueurs detectes: ' + [...allNames].join(', '), 'ok')
-    }
-
-    knownPeerNames.value = [...allNames]
-    peerList.value = [...allNames]
-    peerIps.value = [...allIps]
-  } catch (e) {
-    console.warn('refreshPeers', e)
-    if (pseudo.value.trim()) peerList.value = [pseudo.value.trim()]
-  }
-}
-
-async function sendChat() {
-  const msg = chatInput.value.trim()
-  if (!msg) return
-  const name = pseudo.value.trim() || 'Anonyme'
-  chatInput.value = ''
-  addLog(name + ' : ' + msg, 'chat')
-
-  if (!clientRunning.value || !isNetworkActive.value) return
-
-  try {
-    await invoke('chat_start')
-    await refreshPeers()
-    let peers = [...peerIps.value]
-
-    if (peers.length === 0) {
-      const networks = await getRunningNetworkDetails()
-      for (const network of networks) {
-        peers.push(...collectPeersFromNetwork(network).ips)
-      }
-      peers = [...new Set(peers)]
-    }
-
-    if (peers.length === 0) {
-      addLog('Message local (aucun autre joueur detecte pour le chat)', 'warn')
-      return
-    }
-
-    await invoke('chat_send', { pseudo: name, text: msg, peers })
-    addLog('Message envoye a ' + peers.length + ' joueur(s)', 'ok')
-  } catch (e) {
-    addLog('[Chat] Envoi reseau: ' + String(e), 'warn')
-    console.error('[CHAT]', e)
-  }
-}
-async function pickPublicNode(): Promise<string> {
-  const list = [
-    publicNodeUrl.value.trim(),
-    ...publicNodeCandidates,
-  ].filter((v, i, a) => !!v && a.indexOf(v) === i)
-
-  addLog('Recherche d un noeud public...')
-  for (const url of list) {
-    const m = url.match(/^(?:tcp|udp):\/\/([^:\/\s]+):(\d+)/i)
-    if (!m) continue
-    const host = m[1]
-    try {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 3500)
-      const res = await fetch(
-        'https://dns.google/resolve?name=' + encodeURIComponent(host) + '&type=A',
-        { signal: ctrl.signal }
-      )
-      clearTimeout(timer)
-      const data = await res.json()
-      if (Array.isArray(data?.Answer) && data.Answer.length > 0) {
-        publicNodeUrl.value = url
-        addLog('Noeud public OK : ' + url)
-        return url
-      }
-      addLog('Noeud indisponible (DNS) : ' + url)
-    } catch {
-      addLog('Noeud injoignable : ' + url)
-    }
-  }
-  const fallback = publicNodeCandidates[0]
-  publicNodeUrl.value = fallback
-  addLog('Fallback noeud : ' + fallback)
-  return fallback
-}
-async function startHost() {
-  if (!requirePseudo()) return
-  if (!hostNetworkName.value.trim()) { addLog(s.value.needName); return }
+      const ids: string[] = normalizeInstIds(typeof listed !== 'undefined' ? listed : result); return }
 
   isBusy.value = true
   try {
