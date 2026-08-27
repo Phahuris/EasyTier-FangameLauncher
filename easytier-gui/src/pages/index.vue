@@ -280,82 +280,110 @@ function buildJoinConfig(): any {
 
 
 
+function u32ToIpv4(n: number): string {
+  const x = (Number(n) >>> 0)
+  return ((x >>> 24) & 255) + '.' + ((x >>> 16) & 255) + '.' + ((x >>> 8) & 255) + '.' + (x & 255)
+}
+
 function extractIp(v: any): string {
-  if (!v) return ''
+  if (v === null || v === undefined || v === '') return ''
   if (typeof v === 'string') return v.split('/')[0].trim()
+  if (typeof v === 'number') return u32ToIpv4(v)
   if (typeof v === 'object') {
-    const s = v.address || v.addr || v.ip || v.ipv4 || v.virtual_ipv4 || ''
-    return String(s).split('/')[0].trim()
+    // EasyTier protobuf: { address: { addr: number }, network_length: number }
+    if (v.address !== undefined) {
+      if (typeof v.address === 'number') return u32ToIpv4(v.address)
+      if (v.address && typeof v.address.addr === 'number') return u32ToIpv4(v.address.addr)
+      if (typeof v.address === 'string') return v.address.split('/')[0].trim()
+    }
+    if (typeof v.addr === 'number') return u32ToIpv4(v.addr)
+    const s = v.ip || v.ipv4 || v.virtual_ipv4 || ''
+    if (typeof s === 'string' && s) return s.split('/')[0].trim()
+    if (typeof s === 'object') return extractIp(s)
   }
   return ''
 }
 
-function extractHostname(p: any): string {
-  if (!p || typeof p !== 'object') return ''
-  return String(p.hostname || p.host_name || p.name || p?.route?.hostname || p?.peer?.hostname || '').trim()
+function isPublicServerRoute(route: any): boolean {
+  if (!route) return false
+  if (route?.feature_flag?.is_public_server) return true
+  const hn = String(route.hostname || '').toLowerCase()
+  return hn.includes('publicserver') || hn === 'server' || hn.startsWith('public')
 }
 
-function isPublicServerName(name: string): boolean {
-  const n = (name || '').toLowerCase()
-  return !name || n.includes('publicserver') || n === 'server' || n.startsWith('public')
-}
-
+/** Meme structure que Status.vue officiel EasyTier */
 function collectPeersFromNetwork(network: any): { names: string[], ips: string[] } {
   const names = new Set<string>()
   const ips = new Set<string>()
   if (!network || typeof network !== 'object') return { names: [], ips: [] }
-  const myIp = extractIp(network?.my_node_info?.virtual_ipv4 || network?.my_node_info?.virtual_ip || network?.my_node_info?.ipv4_addr)
+
+  const myIp = extractIp(network?.my_node_info?.virtual_ipv4)
   const myHn = String(network?.my_node_info?.hostname || '').trim()
-  if (myHn && !isPublicServerName(myHn)) names.add(myHn)
-  const buckets: any[] = []
-  if (Array.isArray(network.peers)) buckets.push(...network.peers)
-  if (Array.isArray(network.peer_route_pairs)) buckets.push(...network.peer_route_pairs)
-  if (Array.isArray(network.routes)) buckets.push(...network.routes)
-  if (network.peers && typeof network.peers === 'object' && !Array.isArray(network.peers)) {
-    buckets.push(...Object.values(network.peers))
-  }
-  for (const item of buckets) {
-    if (!item || typeof item !== 'object') continue
-    const route = item.route || item
-    const hn = extractHostname(item) || extractHostname(route)
-    const ip = extractIp(item.virtual_ipv4 || item.virtual_ip || item.ipv4_addr || item.ipv4 || item.ip || route.virtual_ipv4 || route.ipv4_addr || route.ipv4 || route.ip)
-    if (hn && !isPublicServerName(hn)) names.add(hn)
+  if (myHn && !isPublicServerRoute({ hostname: myHn })) names.add(myHn)
+
+  const pairs = Array.isArray(network.peer_route_pairs)
+    ? network.peer_route_pairs
+    : []
+
+  for (const pair of pairs) {
+    const route = pair?.route || pair
+    if (!route || isPublicServerRoute(route)) continue
+    const hn = String(route.hostname || '').trim()
+    const ip = extractIp(route.ipv4_addr || route.virtual_ipv4 || route.ipv4)
+    if (hn) names.add(hn)
     if (ip && ip !== myIp) ips.add(ip)
   }
+
+  // fallback ancien format
+  const peers = Array.isArray(network.peers) ? network.peers : []
+  for (const p of peers) {
+    if (!p || typeof p !== 'object') continue
+    const hn = String(p.hostname || p.host_name || '').trim()
+    const ip = extractIp(p.virtual_ipv4 || p.ipv4_addr || p.ipv4)
+    if (hn && !isPublicServerRoute({ hostname: hn, feature_flag: p.feature_flag })) names.add(hn)
+    if (ip && ip !== myIp) ips.add(ip)
+  }
+
   return { names: [...names], ips: [...ips] }
 }
 
-async function sendChat() {
-  const msg = chatInput.value.trim()
-  if (!msg) return
-  const name = pseudo.value.trim() || 'Anonyme'
-  chatInput.value = ''
-  addLog(name + ' : ' + msg, 'chat')
-  if (!clientRunning.value || !isNetworkActive.value) return
+async function getRunningNetworkDetails(): Promise<any[]> {
+  const networks: any[] = []
   try {
-    await invoke('chat_start')
-    await refreshPeers()
-    let peers = [...peerIps.value]
-    if (peers.length === 0) {
-      const result = await invoke<any>('list_network_instance_ids')
-      const ids: string[] = Array.isArray(result) ? result : Array.isArray(result?.running_inst_ids) ? result.running_inst_ids : []
+    // Voie officielle GUI (comme RemoteManagement)
+    if (remoteClient?.value?.list_network_instance_ids && remoteClient?.value?.get_network_info) {
+      const listed = await remoteClient.value.list_network_instance_ids()
+      const ids: string[] = Array.isArray(listed)
+        ? listed
+        : Array.isArray(listed?.running_inst_ids)
+          ? listed.running_inst_ids
+          : []
       for (const id of ids) {
         try {
-          const info = await invoke<any>('collect_network_info', { inst_id: id })
-          const network = info?.info?.map?.[id] || info?.map?.[id] || info
-          peers.push(...collectPeersFromNetwork(network).ips)
-        } catch {}
+          const net = await remoteClient.value.get_network_info(id)
+          if (net) networks.push(net)
+        } catch { /* ignore */ }
       }
-      peers = [...new Set(peers)]
+      if (networks.length) return networks
     }
-    if (peers.length === 0) {
-      addLog('Message local (aucun autre joueur pour l instant)', 'info')
-      return
+  } catch { /* fallback invoke */ }
+
+  try {
+    const result = await invoke<any>('list_network_instance_ids')
+    const ids: string[] = Array.isArray(result)
+      ? result
+      : Array.isArray(result?.running_inst_ids)
+        ? result.running_inst_ids
+        : []
+    for (const id of ids) {
+      try {
+        const info = await invoke<any>('collect_network_info', { inst_id: id })
+        const net = info?.info?.map?.[id] || info?.map?.[id] || info
+        if (net) networks.push(net)
+      } catch { /* ignore */ }
     }
-    await invoke('chat_send', { pseudo: name, text: msg, peers })
-  } catch (e) {
-    addLog('[Chat] Envoi reseau: ' + String(e), 'warn')
-  }
+  } catch { /* ignore */ }
+  return networks
 }
 
 async function refreshPeers() {
@@ -365,20 +393,17 @@ async function refreshPeers() {
     return
   }
   try {
-    const result = await invoke<any>('list_network_instance_ids')
-    const ids: string[] = Array.isArray(result) ? result : Array.isArray(result?.running_inst_ids) ? result.running_inst_ids : []
     const allNames = new Set<string>()
     const allIps = new Set<string>()
     if (pseudo.value.trim()) allNames.add(pseudo.value.trim())
-    for (const id of ids) {
-      try {
-        const info = await invoke<any>('collect_network_info', { inst_id: id })
-        const network = info?.info?.map?.[id] || info?.map?.[id] || info
-        const { names, ips } = collectPeersFromNetwork(network)
-        names.forEach(n => allNames.add(n))
-        ips.forEach(ip => allIps.add(ip))
-      } catch {}
+
+    const networks = await getRunningNetworkDetails()
+    for (const network of networks) {
+      const { names, ips } = collectPeersFromNetwork(network)
+      names.forEach(n => allNames.add(n))
+      ips.forEach(ip => allIps.add(ip))
     }
+
     const prev = new Set(knownPeerNames.value.map(x => x.toLowerCase()))
     const me = (pseudo.value.trim() || '').toLowerCase()
     for (const n of allNames) {
@@ -387,11 +412,53 @@ async function refreshPeers() {
         addLog(n + ' a rejoint la partie', 'join')
       }
     }
+
+    // Log debug utile une fois quand on detecte quelqu un
+    if (allIps.size > 0 && peerIps.value.length === 0) {
+      addLog('Joueurs detectes: ' + [...allNames].join(', '), 'ok')
+    }
+
     knownPeerNames.value = [...allNames]
     peerList.value = [...allNames]
     peerIps.value = [...allIps]
-  } catch {
+  } catch (e) {
+    console.warn('refreshPeers', e)
     if (pseudo.value.trim()) peerList.value = [pseudo.value.trim()]
+  }
+}
+
+async function sendChat() {
+  const msg = chatInput.value.trim()
+  if (!msg) return
+  const name = pseudo.value.trim() || 'Anonyme'
+  chatInput.value = ''
+  addLog(name + ' : ' + msg, 'chat')
+
+  if (!clientRunning.value || !isNetworkActive.value) return
+
+  try {
+    await invoke('chat_start')
+    await refreshPeers()
+    let peers = [...peerIps.value]
+
+    if (peers.length === 0) {
+      const networks = await getRunningNetworkDetails()
+      for (const network of networks) {
+        peers.push(...collectPeersFromNetwork(network).ips)
+      }
+      peers = [...new Set(peers)]
+    }
+
+    if (peers.length === 0) {
+      addLog('Message local (aucun autre joueur detecte pour le chat)', 'warn')
+      return
+    }
+
+    await invoke('chat_send', { pseudo: name, text: msg, peers })
+    addLog('Message envoye a ' + peers.length + ' joueur(s)', 'ok')
+  } catch (e) {
+    addLog('[Chat] Envoi reseau: ' + String(e), 'warn')
+    console.error('[CHAT]', e)
   }
 }
 async function pickPublicNode(): Promise<string> {
