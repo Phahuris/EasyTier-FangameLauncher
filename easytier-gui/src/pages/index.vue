@@ -132,16 +132,6 @@ async function copyLogsChat() {
   }
 }
 
-
-function normalizeInstIds(listed: any): string[] {
-  const raw: any[] = Array.isArray(listed)
-    ? listed
-    : (Array.isArray(listed?.running_inst_ids) ? listed.running_inst_ids : [])
-  return raw.map((id: any) => {
-    if (typeof id === 'string') return id
-    try { return Utils.UuidToStr(id) } catch { return String(id ?? '') }
-  }).filter((s: string) => !!s)
-}
 const uiLang = ref(localStorage.getItem('lang') || 'fr')
 const uiStrings: Record<string, Record<string, string>> = {
   fr: {
@@ -290,6 +280,16 @@ function buildJoinConfig(): any {
 
 
 
+function normalizeInstIds(listed: any): string[] {
+  const raw: any[] = Array.isArray(listed)
+    ? listed
+    : (Array.isArray(listed?.running_inst_ids) ? listed.running_inst_ids : [])
+  return raw.map((id: any) => {
+    if (typeof id === 'string') return id
+    try { return Utils.UuidToStr(id) } catch { return String(id ?? '') }
+  }).filter((s: string) => !!s)
+}
+
 function u32ToIpv4(n: number): string {
   const x = (Number(n) >>> 0)
   return ((x >>> 24) & 255) + '.' + ((x >>> 16) & 255) + '.' + ((x >>> 8) & 255) + '.' + (x & 255)
@@ -300,70 +300,203 @@ function extractIp(v: any): string {
   if (typeof v === 'string') return v.split('/')[0].trim()
   if (typeof v === 'number') return u32ToIpv4(v)
   if (typeof v === 'object') {
-    // EasyTier protobuf: { address: { addr: number }, network_length: number }
     if (v.address !== undefined) {
       if (typeof v.address === 'number') return u32ToIpv4(v.address)
       if (v.address && typeof v.address.addr === 'number') return u32ToIpv4(v.address.addr)
-      if (typeof v.address === 'string') return v.address.split('/')[0].trim()
+      if (typeof v.address === 'string') return String(v.address).split('/')[0].trim()
     }
     if (typeof v.addr === 'number') return u32ToIpv4(v.addr)
-    const s = v.ip || v.ipv4 || v.virtual_ipv4 || ''
-    if (typeof s === 'string' && s) return s.split('/')[0].trim()
-    if (typeof s === 'object') return extractIp(s)
+    for (const k of ['ip', 'ipv4', 'virtual_ipv4', 'ipv4_addr']) {
+      if (v[k] !== undefined) {
+        const r = extractIp(v[k])
+        if (r) return r
+      }
+    }
   }
   return ''
 }
 
-function isPublicServerRoute(route: any): boolean {
-  if (!route) return false
-  if (route?.feature_flag?.is_public_server) return true
-  const hn = String(route.hostname || '').toLowerCase()
-  return hn.includes('publicserver') || hn === 'server' || hn.startsWith('public')
+function extractHostname(p: any): string {
+  if (!p || typeof p !== 'object') return ''
+  return String(p.hostname || p.host_name || p.name || p?.route?.hostname || p?.peer?.hostname || '').trim()
 }
 
-/** Meme structure que Status.vue officiel EasyTier */
+function isPublicServerName(name: string): boolean {
+  const n = (name || '').toLowerCase()
+  return !name || n.includes('publicserver') || n === 'server' || n.startsWith('public')
+}
+
 function collectPeersFromNetwork(network: any): { names: string[], ips: string[] } {
   const names = new Set<string>()
   const ips = new Set<string>()
   if (!network || typeof network !== 'object') return { names: [], ips: [] }
-
-  const myIp = extractIp(network?.my_node_info?.virtual_ipv4)
+  const myIp = extractIp(network?.my_node_info?.virtual_ipv4 || network?.my_node_info?.virtual_ip)
   const myHn = String(network?.my_node_info?.hostname || '').trim()
-  if (myHn && !isPublicServerRoute({ hostname: myHn })) names.add(myHn)
+  if (myHn && !isPublicServerName(myHn)) names.add(myHn)
 
-  const pairs = Array.isArray(network.peer_route_pairs)
-    ? network.peer_route_pairs
-    : []
-
+  const pairs = Array.isArray(network.peer_route_pairs) ? network.peer_route_pairs : []
   for (const pair of pairs) {
     const route = pair?.route || pair
-    if (!route || isPublicServerRoute(route)) continue
+    if (!route || route?.feature_flag?.is_public_server) continue
     const hn = String(route.hostname || '').trim()
-    const ip = extractIp(route.ipv4_addr || route.virtual_ipv4 || route.ipv4)
-    if (hn) names.add(hn)
+    const ip = extractIp(route.ipv4_addr || route.virtual_ipv4)
+    if (hn && !isPublicServerName(hn)) names.add(hn)
     if (ip && ip !== myIp) ips.add(ip)
   }
 
-  // fallback ancien format
   const peers = Array.isArray(network.peers) ? network.peers : []
   for (const p of peers) {
     if (!p || typeof p !== 'object') continue
-    const hn = String(p.hostname || p.host_name || '').trim()
+    const hn = extractHostname(p)
     const ip = extractIp(p.virtual_ipv4 || p.ipv4_addr || p.ipv4)
-    if (hn && !isPublicServerRoute({ hostname: hn, feature_flag: p.feature_flag })) names.add(hn)
+    if (hn && !isPublicServerName(hn)) names.add(hn)
     if (ip && ip !== myIp) ips.add(ip)
   }
-
   return { names: [...names], ips: [...ips] }
 }
 
-async function getRunningNetworkDetails(): Promise<any[]> {
-  const networks: any[] = []
+async function sendChat() {
+  const msg = chatInput.value.trim()
+  if (!msg) return
+  const name = pseudo.value.trim() || 'Anonyme'
+  chatInput.value = ''
+  addLog(name + ' : ' + msg, 'chat')
+  if (!clientRunning.value || !isNetworkActive.value) return
   try {
-    // Voie officielle GUI (comme RemoteManagement)
-    if (remoteClient?.value?.list_network_instance_ids && remoteClient?.value?.get_network_info) {
-      const listed = await remoteClient.value.list_network_instance_ids()
-      const ids: string[] = normalizeInstIds(typeof listed !== 'undefined' ? listed : result); return }
+    await invoke('chat_start')
+    await refreshPeers()
+    let peers = [...peerIps.value]
+    if (peers.length === 0) {
+      const result = await invoke<any>('list_network_instance_ids')
+      const ids = normalizeInstIds(result)
+      for (const id of ids) {
+        try {
+          const info = await invoke<any>('collect_network_info', { inst_id: id })
+          const network = info?.info?.map?.[id] || info?.map?.[id] || info
+          peers.push(...collectPeersFromNetwork(network).ips)
+        } catch { /* ignore */ }
+      }
+      peers = [...new Set(peers)]
+    }
+    if (peers.length === 0) {
+      addLog('Message local (aucun autre joueur detecte)', 'warn')
+      return
+    }
+    await invoke('chat_send', { pseudo: name, text: msg, peers })
+    addLog('Message envoye a ' + peers.length + ' joueur(s)', 'ok')
+  } catch (e) {
+    addLog('[Chat] Envoi reseau: ' + String(e), 'warn')
+  }
+}
+
+async function refreshPeers() {
+  if (!clientRunning.value) {
+    peerList.value = pseudo.value.trim() ? [pseudo.value.trim()] : []
+    peerIps.value = []
+    return
+  }
+  try {
+    const result = await invoke<any>('list_network_instance_ids')
+    const ids = normalizeInstIds(result)
+    const allNames = new Set<string>()
+    const allIps = new Set<string>()
+    if (pseudo.value.trim()) allNames.add(pseudo.value.trim())
+
+    for (const id of ids) {
+      try {
+        let network: any = null
+        try {
+          if (remoteClient?.value?.get_network_info) {
+            network = await remoteClient.value.get_network_info(id)
+          }
+        } catch { /* ignore */ }
+        if (!network) {
+          const info = await invoke<any>('collect_network_info', { inst_id: id })
+          network = info?.info?.map?.[id] || info?.map?.[id] || info
+        }
+        const { names, ips } = collectPeersFromNetwork(network)
+        names.forEach(n => allNames.add(n))
+        ips.forEach(ip => allIps.add(ip))
+      } catch { /* ignore */ }
+    }
+
+    const prev = new Set(knownPeerNames.value.map(x => x.toLowerCase()))
+    const me = (pseudo.value.trim() || '').toLowerCase()
+    for (const n of allNames) {
+      const key = n.toLowerCase()
+      if (key && key !== me && !prev.has(key) && knownPeerNames.value.length > 0) {
+        addLog(n + ' a rejoint la partie', 'join')
+      }
+    }
+
+    const nameList = [...allNames]
+    const ipList = [...allIps]
+    const changed =
+      nameList.join('|') !== peerList.value.join('|') ||
+      ipList.join('|') !== peerIps.value.join('|')
+
+    knownPeerNames.value = nameList
+    peerList.value = nameList
+    peerIps.value = ipList
+
+    if (changed) {
+      addLog(
+        'Scan peers: ' + nameList.length + ' nom(s) [' + nameList.join(', ') + '] / ' +
+        ipList.length + ' IP [' + ipList.join(', ') + ']',
+        ipList.length > 0 ? 'ok' : 'warn'
+      )
+    }
+  } catch {
+    if (pseudo.value.trim()) peerList.value = [pseudo.value.trim()]
+  }
+}
+onMounted(() => {
+  const peerTimer = setInterval(() => {
+    if (isNetworkActive.value && clientRunning.value) {
+      refreshPeers().catch(() => {})
+    }
+  }, 3000)
+  onUnmounted(() => clearInterval(peerTimer))
+})
+
+async function pickPublicNode(): Promise<string> {
+  const list = [
+    publicNodeUrl.value.trim(),
+    ...publicNodeCandidates,
+  ].filter((v, i, a) => !!v && a.indexOf(v) === i)
+
+  addLog('Recherche d un noeud public...')
+  for (const url of list) {
+    const m = url.match(/^(?:tcp|udp):\/\/([^:\/\s]+):(\d+)/i)
+    if (!m) continue
+    const host = m[1]
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 3500)
+      const res = await fetch(
+        'https://dns.google/resolve?name=' + encodeURIComponent(host) + '&type=A',
+        { signal: ctrl.signal }
+      )
+      clearTimeout(timer)
+      const data = await res.json()
+      if (Array.isArray(data?.Answer) && data.Answer.length > 0) {
+        publicNodeUrl.value = url
+        addLog('Noeud public OK : ' + url)
+        return url
+      }
+      addLog('Noeud indisponible (DNS) : ' + url)
+    } catch {
+      addLog('Noeud injoignable : ' + url)
+    }
+  }
+  const fallback = publicNodeCandidates[0]
+  publicNodeUrl.value = fallback
+  addLog('Fallback noeud : ' + fallback)
+  return fallback
+}
+async function startHost() {
+  if (!requirePseudo()) return
+  if (!hostNetworkName.value.trim()) { addLog(s.value.needName); return }
 
   isBusy.value = true
   try {
