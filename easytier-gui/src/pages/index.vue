@@ -1053,7 +1053,7 @@ const configServerConnectionStatus = computed(() => {
       </div>
     </div>
 
-    <!-- CREATE -->
+        <!-- CREATE -->
     <div v-show="activeTab === 'create'" class="fgl-panel">
       <div v-if="!isNetworkActive" class="fgl-card">
         <div class="fgl-grid fgl-grid-create">
@@ -1069,22 +1069,18 @@ const configServerConnectionStatus = computed(() => {
             <label class="fgl-label">{{ s.netSecret }}</label>
             <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
           </div>
-          <div class="fgl-field fgl-field-node">
-            <label class="fgl-label">{{ s.publicNode }}</label>
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.publicNode || 'Public node' }}</label>
             <input class="fgl-input" v-model="publicNodeUrl" type="text" placeholder="tcp://easytier-us.slarker.me:11010" />
           </div>
-          </div>
-          <div class="fgl-field fgl-field-half fgl-field-placeholder">
-            <!-- reserve pour plus tard -->
-          </div>
           <div class="fgl-field fgl-field-half">
-            <label class="fgl-label">{{ s.fangame }}</label>
+            <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
             <div class="fgl-fangame-row">
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh || 'Game.exe'" />
               <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
             </div>
           </div>
-          <div class="fgl-field fgl-field-half fgl-field-placeholder">
+          <div class="fgl-field fgl-field-half">
             <label class="fgl-label">&nbsp;</label>
             <div v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</div>
           </div>
@@ -1100,17 +1096,6 @@ const configServerConnectionStatus = computed(() => {
           <span>Code</span>
           <input class="fgl-input fgl-share" :value="hostShareCode" readonly @focus="($event.target as HTMLInputElement).select()" />
           <button type="button" class="fgl-btn" @click="copyShareCode">Copier</button>
-          <div class="fgl-field fgl-field-half">
-            <label class="fgl-label">{{ s.fangame }}</label>
-            <div class="fgl-fangame-row">
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
-              <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
-            </div>
-          </div>
-          <div class="fgl-field fgl-field-half fgl-field-placeholder">
-            <label class="fgl-label">&nbsp;</label>
-            <div v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</div>
-          </div>
         </div>
         <div class="fgl-actions">
           <button type="button" class="fgl-btn red" :disabled="isBusy" @click="stopHost">{{ s.stopHost }}</button>
@@ -1128,21 +1113,17 @@ const configServerConnectionStatus = computed(() => {
             <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
           </div>
           <div class="fgl-field fgl-field-code">
-            <label class="fgl-label">{{ s.partyCode }}</label>
-            <input class="fgl-input" v-model="joinCode" type="text" :placeholder="s.partyCodePh" />
-          </div>
-          </div>
-          <div class="fgl-field fgl-field-half fgl-field-placeholder">
-            <!-- reserve pour plus tard -->
+            <label class="fgl-label">{{ s.partyCode || 'Party code' }}</label>
+            <input class="fgl-input" v-model="joinCode" type="text" :placeholder="s.partyCodePh || 'name|password|node'" />
           </div>
           <div class="fgl-field fgl-field-half">
-            <label class="fgl-label">{{ s.fangame }}</label>
+            <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
             <div class="fgl-fangame-row">
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh || 'Game.exe'" />
               <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
             </div>
           </div>
-          <div class="fgl-field fgl-field-half fgl-field-placeholder">
+          <div class="fgl-field fgl-field-half">
             <label class="fgl-label">&nbsp;</label>
             <div v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</div>
           </div>
@@ -1502,19 +1483,32 @@ const configServerConnectionStatus = computed(() => {
 
 
 
-.fgl-grid-create,
-.fgl-grid-join {
+
+
+
+
+
+
+
+
+
+.fgl-grid-create {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1.7fr;
+  grid-template-columns: 1fr 1fr 1fr 1.5fr;
   gap: 10px 12px;
   align-items: end;
 }
-.fgl-grid-join .fgl-field-pseudo { grid-column: 1; grid-row: 1; }
-.fgl-grid-join .fgl-field-code { grid-column: 2; grid-row: 1; }
-.fgl-grid-create > .fgl-field-half,
-.fgl-grid-join > .fgl-field-half {
+.fgl-grid-join {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 10px 12px;
+  align-items: end;
+}
+.fgl-grid-join .fgl-field-pseudo { grid-column: 1; }
+.fgl-grid-join .fgl-field-code { grid-column: 2; }
+.fgl-grid-create .fgl-field-half,
+.fgl-grid-join .fgl-field-half {
   grid-column: span 2;
-  grid-row: auto;
 }
 .fgl-fangame-row {
   display: flex;
@@ -1522,10 +1516,7 @@ const configServerConnectionStatus = computed(() => {
   align-items: center;
   width: 100%;
 }
-.fgl-fangame-row .fgl-input {
-  flex: 1 1 auto;
-  min-width: 0;
-}
+.fgl-fangame-row .fgl-input { flex: 1 1 auto; min-width: 0; }
 .fgl-fangame-row .fgl-btn { flex: 0 0 auto; }
 .fgl-fangame-title {
   color: #69f0ae;
