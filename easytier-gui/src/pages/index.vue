@@ -59,6 +59,7 @@ const joinNetworkSecret = ref(localStorage.getItem('fgl_net_secret') || '')
 const joinPeerUrl = ref('')
 const joinStatus = ref('')
 const fangamePath = ref('')
+const fangameInfo = ref<any>(null)
 const joinCode = ref('')
 
 watch(pseudo, (v) => localStorage.setItem('fgl_pseudo', v))
@@ -473,6 +474,25 @@ onMounted(() => {
   onUnmounted(() => clearInterval(peerTimer))
 })
 
+async function browseFangame() {
+  try {
+    const info = await invoke<any>('pick_fangame_and_detect')
+    if (info.cancelled) {
+      addLog(uiLang.value === 'fr' ? 'Selection annulee' : 'Selection cancelled', 'info')
+      return
+    }
+    fangameInfo.value = info
+    if (info.root) fangamePath.value = info.root
+    else if (info.game_exe) fangamePath.value = info.game_exe
+    addLog(info.message, info.ok ? 'ok' : 'warn')
+    if (info.mode && info.mode !== 'unknown') addLog('Mode: ' + info.mode, 'ok')
+    if (info.scripts_rxdata) addLog('Scripts: ' + info.scripts_rxdata, 'ok')
+    if (info.game_rgssad) addLog('RGSSAD: ' + info.game_rgssad, 'ok')
+    if (info.game_exe) addLog('EXE: ' + info.game_exe, 'info')
+  } catch (e) {
+    addLog('Fangame: ' + String(e), 'warn')
+  }
+}
 async function pickPublicNode(): Promise<string> {
   const list = [
     publicNodeUrl.value.trim(),
@@ -1000,8 +1020,8 @@ const configServerConnectionStatus = computed(() => {
           <div class="fgl-field fgl-field-half">
             <label class="fgl-label">{{ s.fangame }}</label>
             <div class="fgl-fangame-row">
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" disabled />
-              <button type="button" class="fgl-btn" disabled title="Bientot">...</button>
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
+              <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
             </div>
           </div>
           <div class="fgl-field fgl-field-half fgl-field-placeholder">
@@ -1042,8 +1062,8 @@ const configServerConnectionStatus = computed(() => {
           <div class="fgl-field fgl-field-half">
             <label class="fgl-label">{{ s.fangame }}</label>
             <div class="fgl-fangame-row">
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" disabled />
-              <button type="button" class="fgl-btn" disabled title="Bientot">...</button>
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
+              <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
             </div>
           </div>
           <div class="fgl-field fgl-field-half fgl-field-placeholder">

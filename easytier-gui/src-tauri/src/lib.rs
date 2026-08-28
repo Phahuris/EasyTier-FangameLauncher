@@ -3,6 +3,7 @@
 
 mod elevate;
 mod chat;
+mod fangame_detect;
 
 use anyhow::Context;
 use easytier::proto::api::manage::{
@@ -1394,6 +1395,8 @@ pub fn run_gui() -> std::process::ExitCode {
             chat::chat_stop,
             chat::chat_send,
             chat::chat_send_cmd,
+            fangame_detect::detect_fangame_path,
+            fangame_detect::pick_fangame_and_detect,
         ])
         .on_window_event(|_win, event| match event {
             #[cfg(not(target_os = "android"))]
