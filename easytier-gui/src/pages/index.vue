@@ -58,6 +58,8 @@ const joinNetworkName = ref(localStorage.getItem('fgl_net_name') || 'fangame')
 const joinNetworkSecret = ref(localStorage.getItem('fgl_net_secret') || '')
 const joinPeerUrl = ref('')
 const joinStatus = ref('')
+const fangamePath = ref('')
+const joinCode = ref('')
 
 watch(pseudo, (v) => localStorage.setItem('fgl_pseudo', v))
 watch(hostNetworkName, (v) => {
@@ -80,17 +82,8 @@ function addLog(msg: string, kind: string = 'info') {
 }
 
 function logShareCode(code: string) {
-  const parts = String(code || '').split('|')
-  if (parts.length >= 3) {
-    addLog('--- Code de partie ---', 'code')
-    addLog('Nom reseau : ' + parts[0], 'code')
-    addLog('Mot de passe : ' + parts[1], 'code')
-    addLog('Noeud public : ' + parts[2], 'code')
-    addLog('(ligne complete ci-dessous)', 'code')
-    addLog(code, 'code')
-  } else {
-    addLog('Code : ' + code, 'code')
-  }
+  if (!code) return
+  addLog((uiLang.value === 'fr' ? 'Code partie : ' : 'Party code: ') + code, 'code')
 }
 
 function copyShareCode() {
@@ -158,6 +151,18 @@ const uiStrings: Record<string, Record<string, string>> = {
     joinOk: 'Connexion au réseau lancée.',
     hostRunning: 'Partie active (host)',
     noParty: 'Aucune partie',
+    publicNode: 'Noeud public',
+    fangame: 'Fangame (bientot)',
+    fangamePh: 'Selection du fangame — bientot disponible',
+    partyCode: 'Code de partie',
+    partyCodePh: 'colle le code : nom|mdp|noeud',
+    connected: 'Connecte au reseau',
+    playerJoined: ' a rejoint la partie',
+    hostStopped: 'Partie arretee.',
+    searchingNode: 'Recherche d un noeud public...',
+    nodeOk: 'Noeud public OK',
+    nodeFail: 'Noeud indisponible',
+    nodeFallback: 'Noeud de secours',
   },
   en: {
     title: 'FangameLauncher',
@@ -183,6 +188,18 @@ const uiStrings: Record<string, Record<string, string>> = {
     joinOk: 'Join network started.',
     hostRunning: 'Party active (host)',
     noParty: 'No party',
+    publicNode: 'Public node',
+    fangame: 'Fangame (soon)',
+    fangamePh: 'Fangame selection — coming soon',
+    partyCode: 'Party code',
+    partyCodePh: 'paste code: name|password|node',
+    connected: 'Connected to network',
+    playerJoined: ' joined the party',
+    hostStopped: 'Party stopped.',
+    searchingNode: 'Looking for a public node...',
+    nodeOk: 'Public node OK',
+    nodeFail: 'Node unavailable',
+    nodeFallback: 'Fallback node',
   },
 }
 const s = computed(() => uiStrings[uiLang.value] || uiStrings.fr)
@@ -379,11 +396,9 @@ async function sendChat() {
       peers = [...new Set(peers)]
     }
     if (peers.length === 0) {
-      addLog('Message local (aucun autre joueur detecte)', 'warn')
       return
     }
     await invoke('chat_send', { pseudo: name, text: msg, peers })
-    addLog('Message envoye a ' + peers.length + ' joueur(s)', 'ok')
   } catch (e) {
     addLog('[Chat] Envoi reseau: ' + String(e), 'warn')
   }
@@ -425,7 +440,7 @@ async function refreshPeers() {
     for (const n of allNames) {
       const key = n.toLowerCase()
       if (key && key !== me && !prev.has(key) && knownPeerNames.value.length > 0) {
-        addLog(n + ' a rejoint la partie', 'join')
+        addLog(n + s.value.playerJoined, 'join')
       }
     }
 
@@ -465,7 +480,7 @@ async function pickPublicNode(): Promise<string> {
     ...publicNodeCandidates,
   ].filter((v, i, a) => !!v && a.indexOf(v) === i)
 
-  addLog('Recherche d un noeud public...')
+  addLog(s.value.searchingNode)
   for (const url of list) {
     const m = url.match(/^(?:tcp|udp):\/\/([^:\/\s]+):(\d+)/i)
     if (!m) continue
@@ -481,17 +496,17 @@ async function pickPublicNode(): Promise<string> {
       const data = await res.json()
       if (Array.isArray(data?.Answer) && data.Answer.length > 0) {
         publicNodeUrl.value = url
-        addLog('Noeud public OK : ' + url)
+        addLog(s.value.nodeOk + ' : ' + url)
         return url
       }
-      addLog('Noeud indisponible (DNS) : ' + url)
+      addLog(s.value.nodeFail + ' : ' + url)
     } catch {
-      addLog('Noeud injoignable : ' + url)
+      addLog(s.value.nodeFail + ' : ' + url)
     }
   }
   const fallback = publicNodeCandidates[0]
   publicNodeUrl.value = fallback
-  addLog('Fallback noeud : ' + fallback)
+  addLog(s.value.nodeFallback + ' : ' + fallback)
   return fallback
 }
 async function startHost() {
@@ -517,7 +532,7 @@ async function startHost() {
     instanceId.value = cfg.instance_id
     hostStatus.value = s.value.hostRunning
     isNetworkActive.value = true
-    addLog('Connecte au reseau EasyTier', 'ok')
+    addLog(s.value.connected, 'ok')
     refreshPeers()
     hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
     addLog(s.value.hostOk)
@@ -550,22 +565,27 @@ async function stopHost() {
     isNetworkActive.value = false
     peerList.value = []
     isBusy.value = false
-    addLog('Host arrêté.')
+    addLog(s.value.hostStopped)
   }
 }
 async function startJoin() {
   if (!requirePseudo()) return
-  const rawPeer = joinPeerUrl.value.trim()
-  if (rawPeer.includes('|')) {
-    const parts = rawPeer.split('|')
+  // Accepte le code complet dans joinCode OU joinPeerUrl : nom|mdp|noeud
+  const raw = (joinCode.value || joinPeerUrl.value || '').trim()
+  if (raw.includes('|')) {
+    const parts = raw.split('|')
     if (parts.length >= 2) {
-      joinNetworkName.value = parts[0] || joinNetworkName.value
-      joinNetworkSecret.value = parts[1] || joinNetworkSecret.value
+      joinNetworkName.value = (parts[0] || '').trim() || joinNetworkName.value
+      joinNetworkSecret.value = (parts[1] || '').trim()
       if (parts[2]) {
-        joinPeerUrl.value = parts[2]
-        publicNodeUrl.value = parts[2]
+        const node = parts.slice(2).join('|').trim()
+        joinPeerUrl.value = node
+        publicNodeUrl.value = node
       }
+      joinCode.value = raw
     }
+  } else if (raw && (raw.startsWith('tcp://') || raw.startsWith('udp://'))) {
+    joinPeerUrl.value = raw
   }
 
   if (!joinNetworkName.value.trim()) { addLog(s.value.needName); return }
@@ -576,22 +596,17 @@ async function startJoin() {
     if (!clientRunning.value) {
       joinStatus.value = 'DEMO ÔCö join simule (pas de backend)'
       addLog('MODE DEMO JOIN')
-      addLog('Pseudo: ' + pseudo.value.trim())
-      addLog('Reseau: ' + joinNetworkName.value)
-      addLog('Peer: ' + joinPeerUrl.value)
-      addLog('Sur Tauri, run_network serait appele avec peer_urls.')
-      return
+                              return
     }
     const cfg = buildJoinConfig()
     await remoteClient.value.run_network(cfg, true)
     instanceId.value = cfg.instance_id
     joinStatus.value = 'Connecte...'
     isNetworkActive.value = true
-    addLog('Connecte au reseau EasyTier', 'ok')
+    addLog(s.value.connected, 'ok')
     refreshPeers()
     addLog(s.value.joinOk)
-    addLog('Peer: ' + joinPeerUrl.value)
-  } catch (e: unknown) {
+      } catch (e: unknown) {
     addLog('Erreur join: ' + String(e))
     joinStatus.value = 'Erreur'
   } finally {
@@ -757,7 +772,7 @@ onMounted(async () => {
         const text = String(pkt.text || '')
 
         if (text) {
-          addLog(`${sender} : ${text}`)
+          addLog(sender + ' : ' + text, 'chat')
         }
       }
       else if (pkt.type === 'cmd' || pkt.kind === 'cmd') {
@@ -979,9 +994,16 @@ const configServerConnectionStatus = computed(() => {
             <label class="fgl-label">{{ s.netSecret }}</label>
             <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
           </div>
-          <div class="fgl-field fgl-field-wide">
-            <label class="fgl-label">Noeud public</label>
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.publicNode }}</label>
             <input class="fgl-input" v-model="publicNodeUrl" type="text" placeholder="tcp://easytier-us.slarker.me:11010" />
+          </div>
+          <div class="fgl-field fgl-field-wide">
+            <label class="fgl-label">{{ s.fangame }}</label>
+            <div class="fgl-fangame-row">
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" disabled />
+              <button type="button" class="fgl-btn" disabled title="Bientot">...</button>
+            </div>
           </div>
         </div>
         <div class="fgl-actions">
@@ -1011,17 +1033,16 @@ const configServerConnectionStatus = computed(() => {
             <label class="fgl-label">{{ s.pseudo }}</label>
             <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
           </div>
-          <div class="fgl-field">
-            <label class="fgl-label">{{ s.netName }}</label>
-            <input class="fgl-input" v-model="joinNetworkName" type="text" />
-          </div>
-          <div class="fgl-field">
-            <label class="fgl-label">{{ s.netSecret }}</label>
-            <input class="fgl-input" v-model="joinNetworkSecret" type="password" />
+          <div class="fgl-field fgl-field-wide">
+            <label class="fgl-label">{{ s.partyCode }}</label>
+            <input class="fgl-input" v-model="joinCode" type="text" :placeholder="s.partyCodePh" />
           </div>
           <div class="fgl-field fgl-field-wide">
-            <label class="fgl-label">{{ s.peerUrl }} / code partie</label>
-            <input class="fgl-input" v-model="joinPeerUrl" type="text" :placeholder="s.peerPh" />
+            <label class="fgl-label">{{ s.fangame }}</label>
+            <div class="fgl-fangame-row">
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" disabled />
+              <button type="button" class="fgl-btn" disabled title="Bientot">...</button>
+            </div>
           </div>
         </div>
         <div class="fgl-actions">
