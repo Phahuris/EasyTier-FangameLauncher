@@ -524,34 +524,6 @@ async function launchSelectedFangame() {
     addLog('Launch: ' + String(e), 'warn')
   }
 }
-
-async function ensureFangameReady(): Promise<boolean> {
-  const path = (fangamePath.value || '').trim()
-  if (!path) {
-    addLog(uiLang.value === 'fr' ? 'Choisis un fangame (bouton ...)' : 'Select a fangame (... button)', 'warn')
-    return false
-  }
-  try {
-    // prepare Scripts.rxdata (extrait depuis rgssad si besoin)
-    const scriptsPath = await invoke<string>('prepare_scripts_rxdata', { gamePath: path })
-    addLog('Scripts ready: ' + scriptsPath, 'ok')
-    return true
-  } catch (e) {
-    addLog('Scripts prepare: ' + String(e), 'warn')
-    return false
-  }
-}
-
-async function launchSelectedFangame() {
-  const path = (fangamePath.value || '').trim()
-  if (!path) return
-  try {
-    await invoke('launch_fangame', { path })
-    addLog(uiLang.value === 'fr' ? 'Jeu lance' : 'Game launched', 'ok')
-  } catch (e) {
-    addLog('Launch: ' + String(e), 'warn')
-  }
-}
 async function pickPublicNode(): Promise<string> {
   const list = [
     publicNodeUrl.value.trim(),
