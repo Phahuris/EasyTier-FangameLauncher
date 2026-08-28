@@ -1494,17 +1494,32 @@ const configServerConnectionStatus = computed(() => {
   min-height: 1px;
 }
 
-.fgl-fangame-row { display: flex; gap: 8px; align-items: center; }
-.fgl-fangame-row .fgl-input { flex: 1; opacity: 0.75; }
 
+
+
+
+.fgl-fangame-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+.fgl-fangame-row .fgl-input {
+  flex: 1 1 auto;
+  min-width: 180px;
+  opacity: 0.9;
+}
+.fgl-fangame-row .fgl-btn {
+  flex: 0 0 auto;
+}
 .fgl-fangame-title {
+  flex: 0 0 auto;
   color: #69f0ae;
   font-weight: 700;
   font-size: 13px;
   white-space: nowrap;
-  max-width: 220px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-left: 6px;
 }
 </style>
