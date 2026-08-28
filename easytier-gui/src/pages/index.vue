@@ -1372,4 +1372,42 @@ const configServerConnectionStatus = computed(() => {
 .fgl-log-code { color: #ffd54f; font-family: Consolas, monospace; }
 .fgl-log-chat { color: #ea80fc; }
 .fgl-log-warn { color: #ff8a65; }
+/* Create: LIGNE1 = 4 champs, LIGNE2 = fangame moitie + reserve */
+.fgl-grid-create {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1.7fr;
+  gap: 10px 12px;
+  align-items: end;
+}
+.fgl-grid-create .fgl-field-node { min-width: 0; }
+/* fangame + placeholder = 2e ligne (moitie / moitie) */
+.fgl-grid-create > .fgl-field-half {
+  grid-column: 1 / 3;
+}
+.fgl-grid-create > .fgl-field-placeholder {
+  grid-column: 3 / 5;
+  min-height: 1px;
+}
+
+/* Join: LIGNE1 = pseudo + code, LIGNE2 = fangame moitie + reserve */
+.fgl-grid-join {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 10px 12px;
+  align-items: end;
+}
+.fgl-grid-join .fgl-field-pseudo { grid-column: 1; grid-row: 1; }
+.fgl-grid-join .fgl-field-code { grid-column: 2; grid-row: 1; }
+.fgl-grid-join > .fgl-field-half {
+  grid-column: 1 / 2;
+  grid-row: 2;
+}
+.fgl-grid-join > .fgl-field-placeholder {
+  grid-column: 2 / 3;
+  grid-row: 2;
+  min-height: 1px;
+}
+
+.fgl-fangame-row { display: flex; gap: 8px; align-items: center; }
+.fgl-fangame-row .fgl-input { flex: 1; opacity: 0.75; }
 </style>
