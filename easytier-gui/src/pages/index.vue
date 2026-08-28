@@ -1372,38 +1372,44 @@ const configServerConnectionStatus = computed(() => {
 .fgl-log-code { color: #ffd54f; font-family: Consolas, monospace; }
 .fgl-log-chat { color: #ea80fc; }
 .fgl-log-warn { color: #ff8a65; }
-/* Create: LIGNE1 = 4 champs, LIGNE2 = fangame moitie + reserve */
-.fgl-grid-create {
+/* fangame + placeholder = 2e ligne (moitie / moitie) */
+
+
+
+/* Join: LIGNE1 = pseudo + code, LIGNE2 = fangame moitie + reserve */
+
+
+
+
+
+
+
+
+/* Meme grille 4 cols pour Create et Join */
+.fgl-grid-create,
+.fgl-grid-join {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1.7fr;
   gap: 10px 12px;
   align-items: end;
 }
-.fgl-grid-create .fgl-field-node { min-width: 0; }
-/* fangame + placeholder = 2e ligne (moitie / moitie) */
-.fgl-grid-create > .fgl-field-half {
-  grid-column: 1 / 3;
-}
-.fgl-grid-create > .fgl-field-placeholder {
-  grid-column: 3 / 5;
-  min-height: 1px;
-}
 
-/* Join: LIGNE1 = pseudo + code, LIGNE2 = fangame moitie + reserve */
-.fgl-grid-join {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 10px 12px;
-  align-items: end;
-}
+/* CREATE ligne 1 : 4 champs */
+.fgl-grid-create .fgl-field-node { grid-column: 4; min-width: 0; }
+
+/* JOIN ligne 1 : pseudo col1, code col2, vide a droite (col 3-4) */
 .fgl-grid-join .fgl-field-pseudo { grid-column: 1; grid-row: 1; }
 .fgl-grid-join .fgl-field-code { grid-column: 2; grid-row: 1; }
+
+/* Ligne 2 commune : fangame = 2 cols (moitie), reserve = 2 cols */
+.fgl-grid-create > .fgl-field-half,
 .fgl-grid-join > .fgl-field-half {
-  grid-column: 1 / 2;
+  grid-column: 1 / 3;
   grid-row: 2;
 }
+.fgl-grid-create > .fgl-field-placeholder,
 .fgl-grid-join > .fgl-field-placeholder {
-  grid-column: 2 / 3;
+  grid-column: 3 / 5;
   grid-row: 2;
   min-height: 1px;
 }
