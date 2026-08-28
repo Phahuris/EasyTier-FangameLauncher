@@ -59,6 +59,9 @@ const joinNetworkSecret = ref(localStorage.getItem('fgl_net_secret') || '')
 const joinPeerUrl = ref('')
 const joinStatus = ref('')
 const fangamePath = ref('')
+const fangameTitle = ref('')
+const fangameExeSize = ref(0)
+const hostFangameFp = ref<{ title: string, exe_size: number } | null>(null)
 const fangameInfo = ref<any>(null)
 const joinCode = ref('')
 
@@ -484,13 +487,43 @@ async function browseFangame() {
     fangameInfo.value = info
     if (info.root) fangamePath.value = info.root
     else if (info.game_exe) fangamePath.value = info.game_exe
+    fangameTitle.value = info.game_title || ''
+    fangameExeSize.value = Number(info.game_exe_size || 0)
     addLog(info.message, info.ok ? 'ok' : 'warn')
     if (info.mode && info.mode !== 'unknown') addLog('Mode: ' + info.mode, 'ok')
     if (info.scripts_rxdata) addLog('Scripts: ' + info.scripts_rxdata, 'ok')
     if (info.game_rgssad) addLog('RGSSAD: ' + info.game_rgssad, 'ok')
-    if (info.game_exe) addLog('EXE: ' + info.game_exe, 'info')
+    // NE PAS logger game_exe_size (empreinte silencieuse)
   } catch (e) {
     addLog('Fangame: ' + String(e), 'warn')
+  }
+}
+
+async function ensureFangameReady(): Promise<boolean> {
+  const path = (fangamePath.value || '').trim()
+  if (!path) {
+    addLog(uiLang.value === 'fr' ? 'Choisis un fangame (bouton ...)' : 'Select a fangame (... button)', 'warn')
+    return false
+  }
+  try {
+    // prepare Scripts.rxdata (extrait depuis rgssad si besoin)
+    const scriptsPath = await invoke<string>('prepare_scripts_rxdata', { gamePath: path })
+    addLog('Scripts ready: ' + scriptsPath, 'ok')
+    return true
+  } catch (e) {
+    addLog('Scripts prepare: ' + String(e), 'warn')
+    return false
+  }
+}
+
+async function launchSelectedFangame() {
+  const path = (fangamePath.value || '').trim()
+  if (!path) return
+  try {
+    await invoke('launch_fangame', { path })
+    addLog(uiLang.value === 'fr' ? 'Jeu lance' : 'Game launched', 'ok')
+  } catch (e) {
+    addLog('Launch: ' + String(e), 'warn')
   }
 }
 async function pickPublicNode(): Promise<string> {
@@ -534,6 +567,12 @@ async function startHost() {
 
   isBusy.value = true
   try {
+    if (!(await ensureFangameReady())) { isBusy.value = false; return }
+    try {
+      const fp = await invoke<any>('get_fangame_fingerprint', { path: fangamePath.value })
+      hostFangameFp.value = fp
+      localStorage.setItem('fgl_host_fp', JSON.stringify(fp))
+    } catch (e) { addLog('Fangame fingerprint: ' + String(e), 'warn'); isBusy.value = false; return }
     const node = await pickPublicNode()
     publicNodeUrl.value = node
 
@@ -555,7 +594,8 @@ async function startHost() {
     refreshPeers()
     hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
     addLog(s.value.hostOk)
-    logShareCode(hostShareCode.value) /* no log */
+    logShareCode(hostShareCode.value)
+    await launchSelectedFangame() /* no log */
   } catch (e: unknown) {
     addLog('Erreur host: ' + String(e))
     hostStatus.value = 'Erreur'
@@ -612,6 +652,23 @@ async function startJoin() {
 
   isBusy.value = true
   try {
+    if (!(await ensureFangameReady())) { isBusy.value = false; return }
+    try {
+      const fp = await invoke<any>('get_fangame_fingerprint', { path: fangamePath.value })
+      const hostFpRaw = localStorage.getItem('fgl_host_fp')
+      // Si on a une empreinte host locale (meme PC test) ou future partage reseau
+      if (hostFpRaw) {
+        const hostFp = JSON.parse(hostFpRaw)
+        if (hostFp.title && fp.title && hostFp.title !== fp.title) {
+          addLog(uiLang.value === 'fr' ? 'Mauvais fangame (titre different)' : 'Wrong fangame (different title)', 'warn')
+          isBusy.value = false; return
+        }
+        if (hostFp.exe_size && fp.exe_size && hostFp.exe_size !== fp.exe_size) {
+          addLog(uiLang.value === 'fr' ? 'Mauvais fangame (version differente)' : 'Wrong fangame (different version)', 'warn')
+          isBusy.value = false; return
+        }
+      }
+    } catch (e) { addLog('Fangame check: ' + String(e), 'warn'); isBusy.value = false; return }
     if (!clientRunning.value) {
       joinStatus.value = 'DEMO ÔCö join simule (pas de backend)'
       addLog('MODE DEMO JOIN')
@@ -625,6 +682,7 @@ async function startJoin() {
     addLog(s.value.connected, 'ok')
     refreshPeers()
     addLog(s.value.joinOk)
+    await launchSelectedFangame()
       } catch (e: unknown) {
     addLog('Erreur join: ' + String(e))
     joinStatus.value = 'Erreur'
@@ -1022,6 +1080,7 @@ const configServerConnectionStatus = computed(() => {
             <div class="fgl-fangame-row">
               <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
               <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
+              <span v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</span>
             </div>
           </div>
           <div class="fgl-field fgl-field-half fgl-field-placeholder">
@@ -1064,6 +1123,7 @@ const configServerConnectionStatus = computed(() => {
             <div class="fgl-fangame-row">
               <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
               <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
+              <span v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</span>
             </div>
           </div>
           <div class="fgl-field fgl-field-half fgl-field-placeholder">
@@ -1436,4 +1496,15 @@ const configServerConnectionStatus = computed(() => {
 
 .fgl-fangame-row { display: flex; gap: 8px; align-items: center; }
 .fgl-fangame-row .fgl-input { flex: 1; opacity: 0.75; }
+
+.fgl-fangame-title {
+  color: #69f0ae;
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 6px;
+}
 </style>
