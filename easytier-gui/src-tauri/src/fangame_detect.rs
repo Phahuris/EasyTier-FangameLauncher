@@ -64,6 +64,7 @@ fn parse_title_from_ini_text(text: &str) -> Option<String> {
         let lower = line.to_lowercase();
         if lower.starts_with("title=") {
             let t = line.splitn(2, '=').nth(1)?.trim();
+            let t = t.replace('\u{fffd}', "");
             if !t.is_empty() {
                 return Some(t.to_string());
             }
@@ -72,55 +73,52 @@ fn parse_title_from_ini_text(text: &str) -> Option<String> {
     None
 }
 
-/// Game.ini peut etre ANSI, UTF-8, UTF-16 LE/BE (souvent le cas sur les fangames).
+fn from_western(bytes: &[u8]) -> String {
+    bytes.iter().map(|&b| char::from(b)).collect()
+}
+
 fn read_game_ini_title(root: &Path) -> Option<String> {
     let ini = find_in_dir_ci(root, "Game.ini")?;
     let bytes = std::fs::read(&ini).ok()?;
     if bytes.is_empty() {
         return None;
     }
-
-    // UTF-16 LE BOM
     if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
         let u16s: Vec<u16> = bytes[2..]
             .chunks_exact(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
-        let text = String::from_utf16_lossy(&u16s);
-        if let Some(t) = parse_title_from_ini_text(&text) {
+        if let Some(t) = parse_title_from_ini_text(&String::from_utf16_lossy(&u16s)) {
             return Some(t);
         }
     }
-    // UTF-16 BE BOM
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
         let u16s: Vec<u16> = bytes[2..]
             .chunks_exact(2)
             .map(|c| u16::from_be_bytes([c[0], c[1]]))
             .collect();
-        let text = String::from_utf16_lossy(&u16s);
-        if let Some(t) = parse_title_from_ini_text(&text) {
+        if let Some(t) = parse_title_from_ini_text(&String::from_utf16_lossy(&u16s)) {
             return Some(t);
         }
     }
-    // UTF-16 LE sans BOM (beaucoup de null bytes)
     let nulls = bytes.iter().filter(|&&b| b == 0).count();
     if nulls > bytes.len() / 4 {
         let u16s: Vec<u16> = bytes
             .chunks_exact(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
-        let text = String::from_utf16_lossy(&u16s);
-        if let Some(t) = parse_title_from_ini_text(&text) {
+        if let Some(t) = parse_title_from_ini_text(&String::from_utf16_lossy(&u16s)) {
             return Some(t);
         }
     }
-
-    // UTF-8 / Windows-1252 approx
-    let text = String::from_utf8_lossy(&bytes);
-    if let Some(t) = parse_title_from_ini_text(&text) {
-        return Some(t);
+    if let Ok(text) = std::str::from_utf8(&bytes) {
+        if let Some(t) = parse_title_from_ini_text(text) {
+            if !t.contains('\u{fffd}') {
+                return Some(t);
+            }
+        }
     }
-    None
+    parse_title_from_ini_text(&from_western(&bytes))
 }
 
 fn file_size(path: &Path) -> u64 {
@@ -160,21 +158,17 @@ pub fn detect_fangame(path: &str) -> FangameDetectResult {
         };
         (parent, exe)
     } else {
-        let exe = find_in_dir_ci(&input, "Game.exe");
-        (input, exe)
+        (input.clone(), find_in_dir_ci(&input, "Game.exe"))
     };
 
     let game_exe_size = game_exe.as_ref().map(|p| file_size(p)).unwrap_or(0);
     let game_title = read_game_ini_title(&root);
-
     let data_dir = find_dir_ci(&root, "Data");
     let has_data_dir = data_dir.as_ref().map(|d| d.is_dir()).unwrap_or(false);
-
     let scripts_rxdata = data_dir
         .as_ref()
         .and_then(|d| find_in_dir_ci(d, "Scripts.rxdata"))
         .map(|p| p.display().to_string());
-
     let game_rgssad = find_in_dir_ci(&root, "Game.rgssad").map(|p| p.display().to_string());
 
     let (mode, ok, message) = if scripts_rxdata.is_some() {
@@ -210,7 +204,6 @@ pub fn pick_fangame_and_detect() -> FangameDetectResult {
         .add_filter("All files", &["*"])
         .set_title("Select Game.exe (fangame)")
         .pick_file();
-
     match file {
         Some(path) => detect_fangame(&path.display().to_string()),
         None => FangameDetectResult {
@@ -254,19 +247,13 @@ pub fn get_fangame_fingerprint(path: String) -> Result<FangameFingerprint, Strin
 #[tauri::command]
 pub fn launch_fangame(path: String) -> Result<(), String> {
     let info = detect_fangame(&path);
-    let exe = info
-        .game_exe
-        .ok_or_else(|| "Game.exe not found".to_string())?;
-    let root = info.root;
+    let exe = info.game_exe.ok_or_else(|| "Game.exe not found".to_string())?;
     Command::new(&exe)
-        .current_dir(&root)
+        .current_dir(&info.root)
         .spawn()
         .map_err(|e| format!("Failed to launch game: {}", e))?;
     Ok(())
 }
-
-// ----- RGSSAD v1 (comme RPGMakerDecrypter / uuksu) -----
-// IMPORTANT: la cle metadata n avance PAS sur le contenu fichier, seulement name/size.
 
 fn decrypt_integer(value: u32, key: &mut u32) -> u32 {
     let result = value ^ *key;
@@ -306,14 +293,14 @@ pub fn extract_scripts_from_rgssad(rgssad_path: String, out_path: String) -> Res
     let mut magic = [0u8; 6];
     f.read_exact(&mut magic).map_err(|e| e.to_string())?;
     if &magic != b"RGSSAD" {
-        return Err("Not a valid RGSSAD archive (magic)".into());
+        return Err("Not a valid RGSSAD archive".into());
     }
     let mut zero = [0u8; 1];
     f.read_exact(&mut zero).map_err(|e| e.to_string())?;
     let mut ver = [0u8; 1];
     f.read_exact(&mut ver).map_err(|e| e.to_string())?;
     if ver[0] != 1 {
-        return Err(format!("Unsupported RGSSAD version {} (need v1)", ver[0]));
+        return Err(format!("Unsupported RGSSAD version {}", ver[0]));
     }
 
     let mut key: u32 = 0xDEAD_CAFE;
@@ -333,7 +320,7 @@ pub fn extract_scripts_from_rgssad(rgssad_path: String, out_path: String) -> Res
         if name_len == 0 || name_len > 8192 {
             break;
         }
-        if pos + 4 + (name_len as u64) + 4 > file_len {
+        if pos + 4 + name_len as u64 + 4 > file_len {
             break;
         }
         let mut name_enc = vec![0u8; name_len as usize];
@@ -351,8 +338,6 @@ pub fn extract_scripts_from_rgssad(rgssad_path: String, out_path: String) -> Res
         if size > 128 * 1024 * 1024 {
             break;
         }
-
-        // Cle pour decrypt le contenu = cle APRES size (ne pas avancer la cle metadata ensuite)
         let file_key = key;
         let data_pos = f.stream_position().map_err(|e| e.to_string())?;
         if data_pos + size as u64 > file_len {
@@ -360,7 +345,7 @@ pub fn extract_scripts_from_rgssad(rgssad_path: String, out_path: String) -> Res
         }
 
         let lower = name.replace('\\', "/").to_lowercase();
-        let is_scripts = lower.ends_with("scripts.rxdata") || lower == "data/scripts.rxdata";
+        let is_scripts = lower.ends_with("scripts.rxdata");
 
         if is_scripts {
             let mut data_enc = vec![0u8; size as usize];
@@ -373,14 +358,14 @@ pub fn extract_scripts_from_rgssad(rgssad_path: String, out_path: String) -> Res
             out.write_all(&dec).map_err(|e| e.to_string())?;
             return Ok(out_path);
         } else {
-            // Skip data — NE PAS modifier key
-            f.seek(SeekFrom::Current(size as i64)).map_err(|e| e.to_string())?;
+            f.seek(SeekFrom::Current(size as i64))
+                .map_err(|e| e.to_string())?;
         }
     }
 
     let sample: Vec<&str> = found_names.iter().take(8).map(|s| s.as_str()).collect();
     Err(format!(
-        "Scripts.rxdata not found inside Game.rgssad (seen {} entries, e.g. {:?})",
+        "Scripts.rxdata not found ({} entries, e.g. {:?})",
         found_names.len(),
         sample
     ))

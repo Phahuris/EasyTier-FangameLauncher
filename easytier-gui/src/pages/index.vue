@@ -493,9 +493,35 @@ async function browseFangame() {
     if (info.mode && info.mode !== 'unknown') addLog('Mode: ' + info.mode, 'ok')
     if (info.scripts_rxdata) addLog('Scripts: ' + info.scripts_rxdata, 'ok')
     if (info.game_rgssad) addLog('RGSSAD: ' + info.game_rgssad, 'ok')
-    // NE PAS logger game_exe_size (empreinte silencieuse)
   } catch (e) {
     addLog('Fangame: ' + String(e), 'warn')
+  }
+}
+
+async function ensureFangameReady(): Promise<boolean> {
+  const path = (fangamePath.value || '').trim()
+  if (!path) {
+    addLog(uiLang.value === 'fr' ? 'Choisis un fangame (bouton ...)' : 'Select a fangame (... button)', 'warn')
+    return false
+  }
+  try {
+    const scriptsPath = await invoke<string>('prepare_scripts_rxdata', { gamePath: path })
+    addLog('Scripts ready: ' + scriptsPath, 'ok')
+    return true
+  } catch (e) {
+    addLog('Scripts prepare: ' + String(e), 'warn')
+    return false
+  }
+}
+
+async function launchSelectedFangame() {
+  const path = (fangamePath.value || '').trim()
+  if (!path) return
+  try {
+    await invoke('launch_fangame', { path })
+    addLog(uiLang.value === 'fr' ? 'Jeu lance' : 'Game launched', 'ok')
+  } catch (e) {
+    addLog('Launch: ' + String(e), 'warn')
   }
 }
 
@@ -1075,16 +1101,20 @@ const configServerConnectionStatus = computed(() => {
             <label class="fgl-label">{{ s.publicNode }}</label>
             <input class="fgl-input" v-model="publicNodeUrl" type="text" placeholder="tcp://easytier-us.slarker.me:11010" />
           </div>
+          </div>
+          <div class="fgl-field fgl-field-half fgl-field-placeholder">
+            <!-- reserve pour plus tard -->
+          </div>
           <div class="fgl-field fgl-field-half">
             <label class="fgl-label">{{ s.fangame }}</label>
             <div class="fgl-fangame-row">
               <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
               <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
-              <span v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</span>
             </div>
           </div>
           <div class="fgl-field fgl-field-half fgl-field-placeholder">
-            <!-- reserve pour plus tard -->
+            <label class="fgl-label">&nbsp;</label>
+            <div v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</div>
           </div>
         </div>
         <div class="fgl-actions">
@@ -1098,6 +1128,17 @@ const configServerConnectionStatus = computed(() => {
           <span>Code</span>
           <input class="fgl-input fgl-share" :value="hostShareCode" readonly @focus="($event.target as HTMLInputElement).select()" />
           <button type="button" class="fgl-btn" @click="copyShareCode">Copier</button>
+          <div class="fgl-field fgl-field-half">
+            <label class="fgl-label">{{ s.fangame }}</label>
+            <div class="fgl-fangame-row">
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
+              <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
+            </div>
+          </div>
+          <div class="fgl-field fgl-field-half fgl-field-placeholder">
+            <label class="fgl-label">&nbsp;</label>
+            <div v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</div>
+          </div>
         </div>
         <div class="fgl-actions">
           <button type="button" class="fgl-btn red" :disabled="isBusy" @click="stopHost">{{ s.stopHost }}</button>
@@ -1118,16 +1159,20 @@ const configServerConnectionStatus = computed(() => {
             <label class="fgl-label">{{ s.partyCode }}</label>
             <input class="fgl-input" v-model="joinCode" type="text" :placeholder="s.partyCodePh" />
           </div>
+          </div>
+          <div class="fgl-field fgl-field-half fgl-field-placeholder">
+            <!-- reserve pour plus tard -->
+          </div>
           <div class="fgl-field fgl-field-half">
             <label class="fgl-label">{{ s.fangame }}</label>
             <div class="fgl-fangame-row">
               <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" />
               <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
-              <span v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</span>
             </div>
           </div>
           <div class="fgl-field fgl-field-half fgl-field-placeholder">
-            <!-- reserve pour plus tard -->
+            <label class="fgl-label">&nbsp;</label>
+            <div v-if="fangameTitle" class="fgl-fangame-title">{{ fangameTitle }}</div>
           </div>
         </div>
         <div class="fgl-actions">
@@ -1465,7 +1510,26 @@ const configServerConnectionStatus = computed(() => {
 
 
 
-/* Meme grille 4 cols pour Create et Join */
+/* CREATE ligne 1 : 4 champs */
+
+
+/* JOIN ligne 1 : pseudo col1, code col2, vide a droite (col 3-4) */
+
+
+
+/* Ligne 2 commune : fangame = 2 cols (moitie), reserve = 2 cols */
+
+
+
+
+
+
+
+
+
+
+
+
 .fgl-grid-create,
 .fgl-grid-join {
   display: grid;
@@ -1473,31 +1537,13 @@ const configServerConnectionStatus = computed(() => {
   gap: 10px 12px;
   align-items: end;
 }
-
-/* CREATE ligne 1 : 4 champs */
-.fgl-grid-create .fgl-field-node { grid-column: 4; min-width: 0; }
-
-/* JOIN ligne 1 : pseudo col1, code col2, vide a droite (col 3-4) */
 .fgl-grid-join .fgl-field-pseudo { grid-column: 1; grid-row: 1; }
 .fgl-grid-join .fgl-field-code { grid-column: 2; grid-row: 1; }
-
-/* Ligne 2 commune : fangame = 2 cols (moitie), reserve = 2 cols */
 .fgl-grid-create > .fgl-field-half,
 .fgl-grid-join > .fgl-field-half {
-  grid-column: 1 / 3;
-  grid-row: 2;
+  grid-column: span 2;
+  grid-row: auto;
 }
-.fgl-grid-create > .fgl-field-placeholder,
-.fgl-grid-join > .fgl-field-placeholder {
-  grid-column: 3 / 5;
-  grid-row: 2;
-  min-height: 1px;
-}
-
-
-
-
-
 .fgl-fangame-row {
   display: flex;
   gap: 8px;
@@ -1506,19 +1552,15 @@ const configServerConnectionStatus = computed(() => {
 }
 .fgl-fangame-row .fgl-input {
   flex: 1 1 auto;
-  min-width: 180px;
-  opacity: 0.9;
+  min-width: 0;
 }
-.fgl-fangame-row .fgl-btn {
-  flex: 0 0 auto;
-}
+.fgl-fangame-row .fgl-btn { flex: 0 0 auto; }
 .fgl-fangame-title {
-  flex: 0 0 auto;
   color: #69f0ae;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 34px;
   white-space: nowrap;
-  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
