@@ -81,9 +81,8 @@ function addLog(msg: string, kind: string = 'info') {
   })
 }
 
-function logShareCode(code: string) {
-  if (!code) return
-  addLog((uiLang.value === 'fr' ? 'Code partie : ' : 'Party code: ') + code, 'code')
+function logShareCode(_code: string) {
+  // Code affiche dans le bandeau host (bouton Copier) — pas dans les logs
 }
 
 function copyShareCode() {
@@ -536,7 +535,7 @@ async function startHost() {
     refreshPeers()
     hostShareCode.value = [hostNetworkName.value.trim(), hostNetworkSecret.value, node].join('|')
     addLog(s.value.hostOk)
-    logShareCode(hostShareCode.value)
+    logShareCode(hostShareCode.value) /* no log */
   } catch (e: unknown) {
     addLog('Erreur host: ' + String(e))
     hostStatus.value = 'Erreur'
@@ -981,7 +980,7 @@ const configServerConnectionStatus = computed(() => {
     <!-- CREATE -->
     <div v-show="activeTab === 'create'" class="fgl-panel">
       <div v-if="!isNetworkActive" class="fgl-card">
-        <div class="fgl-grid">
+        <div class="fgl-grid fgl-grid-create">
           <div class="fgl-field">
             <label class="fgl-label">{{ s.pseudo }}</label>
             <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
@@ -994,16 +993,19 @@ const configServerConnectionStatus = computed(() => {
             <label class="fgl-label">{{ s.netSecret }}</label>
             <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
           </div>
-          <div class="fgl-field">
+          <div class="fgl-field fgl-field-node">
             <label class="fgl-label">{{ s.publicNode }}</label>
             <input class="fgl-input" v-model="publicNodeUrl" type="text" placeholder="tcp://easytier-us.slarker.me:11010" />
           </div>
-          <div class="fgl-field fgl-field-wide">
+          <div class="fgl-field fgl-field-half">
             <label class="fgl-label">{{ s.fangame }}</label>
             <div class="fgl-fangame-row">
               <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" disabled />
               <button type="button" class="fgl-btn" disabled title="Bientot">...</button>
             </div>
+          </div>
+          <div class="fgl-field fgl-field-half fgl-field-placeholder">
+            <!-- reserve pour plus tard -->
           </div>
         </div>
         <div class="fgl-actions">
@@ -1028,21 +1030,24 @@ const configServerConnectionStatus = computed(() => {
     <!-- JOIN -->
     <div v-show="activeTab === 'join'" class="fgl-panel">
       <div v-if="!isNetworkActive" class="fgl-card">
-        <div class="fgl-grid">
-          <div class="fgl-field">
+        <div class="fgl-grid fgl-grid-join">
+          <div class="fgl-field fgl-field-pseudo">
             <label class="fgl-label">{{ s.pseudo }}</label>
             <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
           </div>
-          <div class="fgl-field fgl-field-wide">
+          <div class="fgl-field fgl-field-code">
             <label class="fgl-label">{{ s.partyCode }}</label>
             <input class="fgl-input" v-model="joinCode" type="text" :placeholder="s.partyCodePh" />
           </div>
-          <div class="fgl-field fgl-field-wide">
+          <div class="fgl-field fgl-field-half">
             <label class="fgl-label">{{ s.fangame }}</label>
             <div class="fgl-fangame-row">
               <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh" disabled />
               <button type="button" class="fgl-btn" disabled title="Bientot">...</button>
             </div>
+          </div>
+          <div class="fgl-field fgl-field-half fgl-field-placeholder">
+            <!-- reserve pour plus tard -->
           </div>
         </div>
         <div class="fgl-actions">
