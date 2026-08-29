@@ -1396,6 +1396,8 @@ pub fn run_gui() -> std::process::ExitCode {
             chat::chat_send,
             chat::chat_send_cmd,
             fangame_detect::prepare_scripts_rxdata,
+            fangame_detect::inject_fgl_test_script,
+            fangame_detect::list_rxdata_scripts,
             fangame_detect::extract_scripts_from_rgssad,
             fangame_detect::launch_fangame,
             fangame_detect::get_fangame_fingerprint,

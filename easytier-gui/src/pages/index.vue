@@ -507,6 +507,13 @@ async function ensureFangameReady(): Promise<boolean> {
   try {
     const scriptsPath = await invoke<string>('prepare_scripts_rxdata', { gamePath: path })
     addLog('Scripts ready: ' + scriptsPath, 'ok')
+    try {
+      const inj = await invoke<string>('inject_fgl_test_script', { scriptsPath })
+      addLog(String(inj).trim() || 'Inject OK', 'ok')
+    } catch (e) {
+      addLog('Inject: ' + String(e), 'warn')
+      // on bloque pas le reseau si ruby absent — warn seulement
+    }
     return true
   } catch (e) {
     addLog('Scripts prepare: ' + String(e), 'warn')

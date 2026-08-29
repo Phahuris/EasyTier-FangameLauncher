@@ -385,3 +385,91 @@ pub fn prepare_scripts_rxdata(game_path: String) -> Result<String, String> {
     let out = out_dir.join("Scripts.rxdata");
     extract_scripts_from_rgssad(rgssad, out.display().to_string())
 }
+
+
+fn find_ruby_exe() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("FGL_RUBY") {
+        let pb = PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    let candidates = [
+        "ruby",
+        "ruby.exe",
+        r"C:\Ruby187\bin\ruby.exe",
+        r"C:\Ruby\bin\ruby.exe",
+        r"C:\Ruby18\bin\ruby.exe",
+    ];
+    for c in candidates {
+        let p = PathBuf::from(c);
+        if p.is_file() {
+            return Some(p);
+        }
+        // PATH lookup
+        if let Ok(out) = Command::new("where").arg(c).output() {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout);
+                if let Some(line) = s.lines().next() {
+                    let pb = PathBuf::from(line.trim());
+                    if pb.is_file() {
+                        return Some(pb);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn fgl_scripts_rb_path() -> Result<PathBuf, String> {
+    // dev: src-tauri/tools ; prod: a cote de l exe
+    let mut cands: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            cands.push(dir.join("tools").join("fgl_scripts.rb"));
+            cands.push(dir.join("fgl_scripts.rb"));
+        }
+    }
+    cands.push(PathBuf::from("tools/fgl_scripts.rb"));
+    cands.push(PathBuf::from("easytier-gui/src-tauri/tools/fgl_scripts.rb"));
+    // CARGO_MANIFEST_DIR au compile
+    cands.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tools").join("fgl_scripts.rb"));
+    for c in cands {
+        if c.is_file() {
+            return Ok(c);
+        }
+    }
+    Err("fgl_scripts.rb not found".into())
+}
+
+fn run_fgl_scripts(args: &[&str]) -> Result<String, String> {
+    let ruby = find_ruby_exe().ok_or_else(|| {
+        "Ruby not found. Install Ruby 1.8.x or set FGL_RUBY to ruby.exe".to_string()
+    })?;
+    let script = fgl_scripts_rb_path()?;
+    let mut cmd = Command::new(&ruby);
+    cmd.arg(&script);
+    for a in args {
+        cmd.arg(a);
+    }
+    let out = cmd.output().map_err(|e| format!("spawn ruby: {}", e))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    if !out.status.success() {
+        return Err(format!("ruby failed: {}{}", stderr, stdout));
+    }
+    Ok(stdout)
+}
+
+/// Liste les scripts (index, id, name) — une ligne par script
+#[tauri::command]
+pub fn list_rxdata_scripts(scripts_path: String) -> Result<String, String> {
+    run_fgl_scripts(&["list", &scripts_path])
+}
+
+/// Injecte le script test FGL_Test (backup .fglbak une fois)
+#[tauri::command]
+pub fn inject_fgl_test_script(scripts_path: String) -> Result<String, String> {
+    run_fgl_scripts(&["inject", &scripts_path])
+}
