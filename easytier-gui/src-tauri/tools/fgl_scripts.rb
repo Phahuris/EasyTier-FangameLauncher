@@ -1,5 +1,7 @@
-# FGL Scripts helper — Ruby 1.8.7 / RMXP compatible
+# FGL Scripts helper — Ruby 1.8.7 / RMXP
 require 'zlib'
+
+NAME = 'FGL_Test'
 
 def die(msg)
   STDERR.puts("ERROR: #{msg}")
@@ -10,7 +12,7 @@ def load_scripts(path)
   die("file not found: #{path}") unless File.exist?(path)
   data = nil
   File.open(path, 'rb') { |f| data = Marshal.load(f) }
-  die("Scripts.rxdata is not an Array") unless data.is_a?(Array)
+  die("not an Array") unless data.is_a?(Array)
   data
 end
 
@@ -18,10 +20,17 @@ def save_scripts(path, data)
   File.open(path, 'wb') { |f| Marshal.dump(data, f) }
 end
 
+def has_plugin?(data, name)
+  data.each do |sc|
+    return true if sc.is_a?(Array) && sc[1].to_s == name
+  end
+  false
+end
+
 cmd = ARGV[0]
 path = ARGV[1]
 out  = ARGV[2] ? ARGV[2] : path
-die("usage: fgl_scripts.rb list|inject <Scripts.rxdata> [out]") if cmd.nil? || path.nil?
+die("usage: fgl_scripts.rb list|check|inject <Scripts.rxdata> [out]") if cmd.nil? || path.nil?
 
 data = load_scripts(path)
 
@@ -38,10 +47,20 @@ if cmd == 'list'
   exit 0
 end
 
+if cmd == 'check'
+  if has_plugin?(data, NAME)
+    puts "PRESENT"
+  else
+    puts "ABSENT"
+  end
+  exit 0
+end
+
 if cmd == 'inject'
-  name = 'FGL_Test'
-  # remove previous injection
-  data = data.reject { |sc| sc.is_a?(Array) && sc[1].to_s == name }
+  if has_plugin?(data, NAME)
+    puts "SKIP already present #{NAME}"
+    exit 0
+  end
 
   src = ""
   src << "# FGL_Test - injection check\n"
@@ -59,9 +78,7 @@ if cmd == 'inject'
       max_id = sc[0]
     end
   end
-  entry = [max_id + 1, name, z]
-
-  # insert before last script (often Main)
+  entry = [max_id + 1, NAME, z]
   if data.length > 0
     data.insert(data.length - 1, entry)
   else
@@ -74,8 +91,8 @@ if cmd == 'inject'
   end
 
   save_scripts(out, data)
-  puts "OK injected #{name} -> #{out}"
+  puts "OK injected #{NAME} -> #{out}"
   exit 0
 end
 
-die("unknown command: #{cmd}")
+die("unknown command")

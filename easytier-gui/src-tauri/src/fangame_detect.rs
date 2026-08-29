@@ -387,6 +387,9 @@ pub fn prepare_scripts_rxdata(game_path: String) -> Result<String, String> {
 }
 
 
+/// Contenu de tools/fgl_scripts.rb compile dans le binaire (plus de "file not found")
+const FGL_SCRIPTS_RB: &str = include_str!("../tools/fgl_scripts.rb");
+
 fn find_ruby_exe() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("FGL_RUBY") {
         let pb = PathBuf::from(p);
@@ -395,26 +398,41 @@ fn find_ruby_exe() -> Option<PathBuf> {
         }
     }
     let candidates = [
-        "ruby",
-        "ruby.exe",
         r"C:\Ruby187\bin\ruby.exe",
         r"C:\Ruby\bin\ruby.exe",
         r"C:\Ruby18\bin\ruby.exe",
+        r"C:\Ruby26\bin\ruby.exe",
+        r"C:\Ruby27\bin\ruby.exe",
+        r"C:\Ruby30\bin\ruby.exe",
+        r"C:\Ruby31\bin\ruby.exe",
+        r"C:\Ruby32\bin\ruby.exe",
+        r"C:\Ruby33\bin\ruby.exe",
     ];
     for c in candidates {
-        let p = PathBuf::from(c);
-        if p.is_file() {
-            return Some(p);
+        let pb = PathBuf::from(c);
+        if pb.is_file() {
+            return Some(pb);
         }
-        // PATH lookup
-        if let Ok(out) = Command::new("where").arg(c).output() {
-            if out.status.success() {
-                let s = String::from_utf8_lossy(&out.stdout);
-                if let Some(line) = s.lines().next() {
-                    let pb = PathBuf::from(line.trim());
-                    if pb.is_file() {
-                        return Some(pb);
-                    }
+    }
+    // PATH
+    if let Ok(out) = Command::new("where").arg("ruby.exe").output() {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = s.lines().next() {
+                let pb = PathBuf::from(line.trim());
+                if pb.is_file() {
+                    return Some(pb);
+                }
+            }
+        }
+    }
+    if let Ok(out) = Command::new("where").arg("ruby").output() {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = s.lines().next() {
+                let pb = PathBuf::from(line.trim());
+                if pb.is_file() {
+                    return Some(pb);
                 }
             }
         }
@@ -422,54 +440,62 @@ fn find_ruby_exe() -> Option<PathBuf> {
     None
 }
 
-fn fgl_scripts_rb_path() -> Result<PathBuf, String> {
-    // dev: src-tauri/tools ; prod: a cote de l exe
-    let mut cands: Vec<PathBuf> = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            cands.push(dir.join("tools").join("fgl_scripts.rb"));
-            cands.push(dir.join("fgl_scripts.rb"));
-        }
-    }
-    cands.push(PathBuf::from("tools/fgl_scripts.rb"));
-    cands.push(PathBuf::from("easytier-gui/src-tauri/tools/fgl_scripts.rb"));
-    // CARGO_MANIFEST_DIR au compile
-    cands.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tools").join("fgl_scripts.rb"));
-    for c in cands {
-        if c.is_file() {
-            return Ok(c);
-        }
-    }
-    Err("fgl_scripts.rb not found".into())
+fn materialize_fgl_scripts_rb() -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir().join("fangamelauncher");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("fgl_scripts.rb");
+    // Toujours reecrire (maj script)
+    std::fs::write(&path, FGL_SCRIPTS_RB).map_err(|e| e.to_string())?;
+    Ok(path)
 }
 
 fn run_fgl_scripts(args: &[&str]) -> Result<String, String> {
     let ruby = find_ruby_exe().ok_or_else(|| {
-        "Ruby not found. Install Ruby 1.8.x or set FGL_RUBY to ruby.exe".to_string()
+        "Ruby not found. Set FGL_RUBY to full path of ruby.exe (1.8.x preferred)".to_string()
     })?;
-    let script = fgl_scripts_rb_path()?;
+    let script = materialize_fgl_scripts_rb()?;
     let mut cmd = Command::new(&ruby);
     cmd.arg(&script);
     for a in args {
         cmd.arg(a);
     }
     let out = cmd.output().map_err(|e| format!("spawn ruby: {}", e))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     if !out.status.success() {
-        return Err(format!("ruby failed: {}{}", stderr, stdout));
+        return Err(format!("ruby: {} {}", stderr, stdout));
     }
     Ok(stdout)
 }
 
-/// Liste les scripts (index, id, name) — une ligne par script
 #[tauri::command]
 pub fn list_rxdata_scripts(scripts_path: String) -> Result<String, String> {
     run_fgl_scripts(&["list", &scripts_path])
 }
 
-/// Injecte le script test FGL_Test (backup .fglbak une fois)
+#[tauri::command]
+pub fn check_fgl_plugin(scripts_path: String) -> Result<String, String> {
+    run_fgl_scripts(&["check", &scripts_path])
+}
+
 #[tauri::command]
 pub fn inject_fgl_test_script(scripts_path: String) -> Result<String, String> {
+    // check d abord
+    let st = run_fgl_scripts(&["check", &scripts_path])?;
+    if st.contains("PRESENT") {
+        return Ok("SKIP already present".into());
+    }
     run_fgl_scripts(&["inject", &scripts_path])
+}
+
+/// Pipeline avant partie: extract si besoin -> check -> inject si absent
+#[tauri::command]
+pub fn prepare_and_patch_fangame(game_path: String) -> Result<String, String> {
+    let scripts = prepare_scripts_rxdata(game_path)?;
+    let check = run_fgl_scripts(&["check", &scripts])?;
+    if check.contains("PRESENT") {
+        return Ok(format!("READY scripts={} plugin=already", scripts));
+    }
+    let inj = run_fgl_scripts(&["inject", &scripts])?;
+    Ok(format!("READY scripts={} plugin={}", scripts, inj))
 }
