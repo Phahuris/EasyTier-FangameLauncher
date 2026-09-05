@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "allowed": [
+    {
+      "id": "infinite_fusion",
+      "display_name": "Pokemon Infinite Fusion",
+      "title_exact": "infinitefusion",
+      "exe_size_min": 18518103,
+      "exe_size_max": 0,
+      "required_files": [
+        "Game.exe",
+        "Game.ini",
+        "RGSS104E.dll",
+        "InfiniteFusion.exe",
+        "Data/Scripts.rxdata",
+        "Data/species.dat",
+        "Data/dex.json",
+        "Data/generated_entries.json",
+        "Data/encounters.dat",
+        "Data/trainers.dat"
+      ],
+      "required_dirs": [
+        "Data",
+        "Audio",
+        "Audio/BGM",
+        "Graphics",
+        "Fonts",
+        "Data/pokedex",
+        "Data/sprites"
+      ],
+      "required_any_files": [
+        ["x64-msvcrt-ruby310.dll", "x64-msvcrt-ruby300.dll"]
+      ],
+      "plugins": ["FGL_Battle", "FGL_Trade", "FGL_Net"],
+      "plugins_source": "InfiniteFusion/plugins",
+      "audio_source": "InfiniteFusion/audio",
+      "plugin_dest": "Data/Scripts/052_AddOns",
+      "audio_dest": "Audio/BGM",
+      "audio_files": ["FGL_Battle.mp3", "FGL_Battle.ogg"]
+    }
+  ]
+}

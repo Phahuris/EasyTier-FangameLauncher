@@ -499,3 +499,689 @@ pub fn prepare_and_patch_fangame(game_path: String) -> Result<String, String> {
     let inj = run_fgl_scripts(&["inject", &scripts])?;
     Ok(format!("READY scripts={} plugin={}", scripts, inj))
 }
+
+#[tauri::command]
+pub fn write_game_command(game_path: String, command: String) -> Result<(), String> {
+    let root = std::path::PathBuf::from(game_path.trim());
+    if !root.exists() {
+        return Err("game path not found".into());
+    }
+    let peers = root.join("FGL_peers");
+    std::fs::create_dir_all(&peers).map_err(|e| e.to_string())?;
+    let mut best_id: Option<String> = None;
+    let mut best_mtime = std::time::SystemTime::UNIX_EPOCH;
+    if let Ok(rd) = std::fs::read_dir(&peers) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) != Some("txt") {
+                continue;
+            }
+            let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            if name.is_empty() {
+                continue;
+            }
+            let lower = name.to_lowercase();
+            if lower.starts_with("chal")
+                || lower.starts_with("trd_")
+                || lower.starts_with("bat_")
+                || lower.starts_with("party")
+                || lower.starts_with("cmd_")
+                || lower.starts_with("partyready")
+            {
+                continue;
+            }
+            if let Ok(meta) = p.metadata() {
+                if let Ok(m) = meta.modified() {
+                    if m > best_mtime {
+                        best_mtime = m;
+                        best_id = Some(name);
+                    }
+                }
+            }
+        }
+    }
+    let id = best_id.ok_or_else(|| {
+        "no local player id in FGL_peers (lance le jeu d abord)".to_string()
+    })?;
+    let cmd_path = peers.join(format!("cmd_{}.txt", id));
+    std::fs::write(&cmd_path, command.trim().as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cleanup_fgl_temp(game_path: String) -> Result<u32, String> {
+    let root = std::path::PathBuf::from(game_path.trim());
+    let peers = root.join("FGL_peers");
+    if !peers.exists() {
+        return Ok(0);
+    }
+    let mut n = 0u32;
+    if let Ok(rd) = std::fs::read_dir(&peers) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let drop = name.starts_with("chal")
+                || name.starts_with("chalresp")
+                || name.starts_with("trd_")
+                || name.starts_with("bat_")
+                || name.starts_with("party_")
+                || name.starts_with("partyready_")
+                || name.starts_with("cmd_");
+            if drop {
+                if std::fs::remove_file(&p).is_ok() {
+                    n += 1;
+                }
+            }
+        }
+    }
+    Ok(n)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FangameAllowEntry {
+    pub id: String,
+    pub display_name: String,
+    pub title_contains: Vec<String>,
+    #[serde(default)]
+    pub exe_size: u64,
+    #[serde(default)]
+    pub exe_size_tolerance: u64,
+    #[serde(default)]
+    pub require_scripts_rxdata: bool,
+    #[serde(default)]
+    pub require_addons_folder: String,
+    #[serde(default)]
+    pub plugins_source: String,
+    #[serde(default)]
+    pub audio_source: String,
+    #[serde(default)]
+    pub plugin_dest: String,
+    #[serde(default)]
+    pub audio_dest: String,
+    #[serde(default)]
+    pub audio_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FangameRegistry {
+    pub version: u32,
+    pub allowed: Vec<FangameAllowEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FangameAllowResult {
+    pub allowed: bool,
+    pub fangame_id: Option<String>,
+    pub display_name: Option<String>,
+    pub reason: String,
+    pub title: Option<String>,
+    pub exe_size: u64,
+}
+
+fn registry_path() -> PathBuf {
+    // Dossier du binaire / cwd puis fallback relatif projet
+    let candidates = [
+        PathBuf::from("fangames/registry.json"),
+        PathBuf::from("../fangames/registry.json"),
+        PathBuf::from("../../fangames/registry.json"),
+        PathBuf::from("../../../fangames/registry.json"),
+    ];
+    for c in candidates {
+        if c.is_file() {
+            return c;
+        }
+    }
+    // resource dir via env optionnel
+    if let Ok(p) = std::env::var("FGL_REGISTRY") {
+        let pb = PathBuf::from(p);
+        if pb.is_file() {
+            return pb;
+        }
+    }
+    PathBuf::from("fangames/registry.json")
+}
+
+fn load_registry() -> Result<FangameRegistry, String> {
+    let p = registry_path();
+    let raw = std::fs::read_to_string(&p).map_err(|e| {
+        format!(
+            "registry.json introuvable ({}): {}",
+            p.display(),
+            e
+        )
+    })?;
+    serde_json::from_str(&raw).map_err(|e| format!("registry.json invalide: {}", e))
+}
+
+fn title_matches(title: &str, needles: &[String]) -> bool {
+    let t = title.to_lowercase();
+    needles.iter().any(|n| t.contains(&n.to_lowercase()))
+}
+
+fn exe_size_ok(actual: u64, expected: u64, tol: u64) -> bool {
+    if expected == 0 {
+        return true;
+    }
+    if actual == expected {
+        return true;
+    }
+    if tol > 0 {
+        let lo = expected.saturating_sub(tol);
+        let hi = expected.saturating_add(tol);
+        return actual >= lo && actual <= hi;
+    }
+    false
+}
+
+#[tauri::command]
+pub fn is_fangame_allowed(path: String) -> Result<FangameAllowResult, String> {
+    let info = detect_fangame(&path);
+    let title = info.game_title.clone();
+    let exe_size = info.game_exe_size;
+
+    if !info.ok {
+        return Ok(FangameAllowResult {
+            allowed: false,
+            fangame_id: None,
+            display_name: None,
+            reason: format!("Fangame invalide: {}", info.message),
+            title,
+            exe_size,
+        });
+    }
+
+    let reg = load_registry()?;
+    let title_str = title.clone().unwrap_or_default();
+
+    for entry in &reg.allowed {
+        if !title_matches(&title_str, &entry.title_contains) {
+            continue;
+        }
+        if !exe_size_ok(exe_size, entry.exe_size, entry.exe_size_tolerance) {
+            return Ok(FangameAllowResult {
+                allowed: false,
+                fangame_id: Some(entry.id.clone()),
+                display_name: Some(entry.display_name.clone()),
+                reason: format!(
+                    "Taille Game.exe incorrecte (obtenu {}, attendu {} ±{})",
+                    exe_size, entry.exe_size, entry.exe_size_tolerance
+                ),
+                title,
+                exe_size,
+            });
+        }
+        if entry.require_scripts_rxdata && info.scripts_rxdata.is_none() {
+            // Infinite Fusion a en general Scripts.rxdata ; on tolere si Data existe
+            if !info.has_data_dir {
+                return Ok(FangameAllowResult {
+                    allowed: false,
+                    fangame_id: Some(entry.id.clone()),
+                    display_name: Some(entry.display_name.clone()),
+                    reason: "Scripts.rxdata / Data manquant".into(),
+                    title,
+                    exe_size,
+                });
+            }
+        }
+        return Ok(FangameAllowResult {
+            allowed: true,
+            fangame_id: Some(entry.id.clone()),
+            display_name: Some(entry.display_name.clone()),
+            reason: "OK".into(),
+            title,
+            exe_size,
+        });
+    }
+
+    Ok(FangameAllowResult {
+        allowed: false,
+        fangame_id: None,
+        display_name: None,
+        reason: format!(
+            "Fangame non autorise (titre: {:?}). Seul Pokemon Infinite Fusion est supporte pour le moment.",
+            title_str
+        ),
+        title,
+        exe_size,
+    })
+}
+
+fn launcher_fangames_root() -> PathBuf {
+    let candidates = [
+        PathBuf::from("fangames"),
+        PathBuf::from("../fangames"),
+        PathBuf::from("../../fangames"),
+        PathBuf::from("../../../fangames"),
+    ];
+    for c in candidates {
+        if c.is_dir() {
+            return c;
+        }
+    }
+    if let Ok(p) = std::env::var("FGL_FANGAMES") {
+        let pb = PathBuf::from(p);
+        if pb.is_dir() {
+            return pb;
+        }
+    }
+    PathBuf::from("fangames")
+}
+
+fn plugin_version_line(path: &Path) -> Option<String> {
+    let s = std::fs::read_to_string(path).ok()?;
+    s.lines().next().map(|l| l.trim().to_string())
+}
+
+#[tauri::command]
+pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, String> {
+    let allow = is_fangame_allowed(game_path.clone())?;
+    if !allow.allowed {
+        return Err(allow.reason);
+    }
+    let entry_id = allow.fangame_id.unwrap_or_else(|| "infinite_fusion".into());
+    let reg = load_registry()?;
+    let entry = reg
+        .allowed
+        .iter()
+        .find(|e| e.id == entry_id)
+        .ok_or_else(|| "entree registry introuvable".to_string())?;
+
+    let info = detect_fangame(&game_path);
+    let root = PathBuf::from(&info.root);
+    let lang = lang.to_lowercase();
+    let lang = if lang.starts_with("en") { "EN" } else { "FR" };
+    let other = if lang == "FR" { "EN" } else { "FR" };
+
+    let plugin_dest = if entry.plugin_dest.is_empty() {
+        root.join("Data").join("Scripts").join("052_AddOns")
+    } else {
+        root.join(&entry.plugin_dest)
+    };
+    std::fs::create_dir_all(&plugin_dest).map_err(|e| e.to_string())?;
+
+    let src_plugins = launcher_fangames_root().join(if entry.plugins_source.is_empty() {
+        "InfiniteFusion/plugins".into()
+    } else {
+        entry.plugins_source.clone()
+    });
+    if !src_plugins.is_dir() {
+        return Err(format!(
+            "plugins source introuvable: {}",
+            src_plugins.display()
+        ));
+    }
+
+    let names = [
+        "FGL_Battle",
+        "FGL_Trade",
+        "FGL_Net",
+    ];
+    let mut installed = Vec::new();
+    for base in names {
+        // supprime l'autre langue
+        let other_path = plugin_dest.join(format!("{}_{}.rb", base, other));
+        let _ = std::fs::remove_file(&other_path);
+        // copie la bonne
+        let src = src_plugins.join(format!("{}_{}.rb", base, lang));
+        if !src.is_file() {
+            return Err(format!("manquant: {}", src.display()));
+        }
+        let dst = plugin_dest.join(format!("{}_{}.rb", base, lang));
+        // si deja present avec meme premiere ligne, skip rewrite optionnel
+        let _ver = plugin_version_line(&src);
+        std::fs::copy(&src, &dst).map_err(|e| format!("copy {}: {}", base, e))?;
+        installed.push(format!("{}_{}.rb", base, lang));
+    }
+
+    // musique
+    let audio_dest = if entry.audio_dest.is_empty() {
+        root.join("Audio").join("BGM")
+    } else {
+        root.join(&entry.audio_dest)
+    };
+    std::fs::create_dir_all(&audio_dest).map_err(|e| e.to_string())?;
+    let src_audio = launcher_fangames_root().join(if entry.audio_source.is_empty() {
+        "InfiniteFusion/audio".into()
+    } else {
+        entry.audio_source.clone()
+    });
+    let audio_files = if entry.audio_files.is_empty() {
+        vec!["FGL_Battle.mp3".into(), "FGL_Battle.ogg".into()]
+    } else {
+        entry.audio_files.clone()
+    };
+    for af in audio_files {
+        let s = src_audio.join(&af);
+        if s.is_file() {
+            let d = audio_dest.join(&af);
+            std::fs::copy(&s, &d).map_err(|e| format!("copy audio {}: {}", af, e))?;
+            installed.push(af);
+            break;
+        }
+    }
+
+    Ok(format!(
+        "Install OK ({}) -> {} | {}",
+        lang,
+        plugin_dest.display(),
+        installed.join(", ")
+    ))
+}
+
+// ===== FGL REGISTRY EMBEDDED (non modifiable apres compile) =====
+const FGL_REGISTRY_JSON: &str = include_str!("fgl_registry.json");
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FangameAllowEntry {
+    pub id: String,
+    pub display_name: String,
+    pub title_exact: String,
+    pub exe_size_min: u64,
+    #[serde(default)]
+    pub exe_size_max: u64,
+    #[serde(default)]
+    pub required_files: Vec<String>,
+    #[serde(default)]
+    pub required_dirs: Vec<String>,
+    #[serde(default)]
+    pub required_any_files: Vec<Vec<String>>,
+    #[serde(default)]
+    pub plugins: Vec<String>,
+    #[serde(default)]
+    pub plugins_source: String,
+    #[serde(default)]
+    pub audio_source: String,
+    #[serde(default)]
+    pub plugin_dest: String,
+    #[serde(default)]
+    pub audio_dest: String,
+    #[serde(default)]
+    pub audio_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FangameRegistry {
+    pub version: u32,
+    pub allowed: Vec<FangameAllowEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FangameAllowResult {
+    pub allowed: bool,
+    pub fangame_id: Option<String>,
+    pub display_name: Option<String>,
+    pub reason: String,
+    pub title: Option<String>,
+    pub exe_size: u64,
+    pub plugins_ok: bool,
+    pub plugins_missing: Vec<String>,
+}
+
+fn load_registry() -> Result<FangameRegistry, String> {
+    serde_json::from_str(FGL_REGISTRY_JSON).map_err(|e| format!("registry embed invalide: {}", e))
+}
+
+fn join_rel(root: &Path, rel: &str) -> PathBuf {
+    root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
+}
+
+fn path_is_file(root: &Path, rel: &str) -> bool {
+    join_rel(root, rel).is_file()
+}
+
+fn path_is_dir(root: &Path, rel: &str) -> bool {
+    join_rel(root, rel).is_dir()
+}
+
+fn launcher_fangames_root() -> PathBuf {
+    for c in [
+        PathBuf::from("fangames"),
+        PathBuf::from("../fangames"),
+        PathBuf::from("../../fangames"),
+        PathBuf::from("../../../fangames"),
+    ] {
+        if c.is_dir() {
+            return c;
+        }
+    }
+    if let Ok(p) = std::env::var("FGL_FANGAMES") {
+        let pb = PathBuf::from(p);
+        if pb.is_dir() {
+            return pb;
+        }
+    }
+    PathBuf::from("fangames")
+}
+
+fn check_plugins_on_disk(root: &Path, entry: &FangameAllowEntry, lang: &str) -> (bool, Vec<String>) {
+    let dest = if entry.plugin_dest.is_empty() {
+        root.join("Data").join("Scripts").join("052_AddOns")
+    } else {
+        join_rel(root, &entry.plugin_dest)
+    };
+    let plugins = if entry.plugins.is_empty() {
+        vec!["FGL_Battle".into(), "FGL_Trade".into(), "FGL_Net".into()]
+    } else {
+        entry.plugins.clone()
+    };
+    let mut missing = Vec::new();
+    for base in plugins {
+        let p = dest.join(format!("{}_{}.rb", base, lang));
+        if !p.is_file() {
+            missing.push(format!("{}_{}.rb", base, lang));
+        }
+    }
+    (missing.is_empty(), missing)
+}
+
+fn validate_entry(root: &Path, entry: &FangameAllowEntry, title_str: &str, exe_size: u64) -> Result<(), String> {
+    if title_str.trim() != entry.title_exact.trim() {
+        return Err(format!(
+            "Titre incorrect (obtenu {:?}, requis {:?})",
+            title_str.trim(),
+            entry.title_exact.trim()
+        ));
+    }
+    if exe_size < entry.exe_size_min {
+        return Err(format!(
+            "Game.exe trop petit ({} < min {})",
+            exe_size, entry.exe_size_min
+        ));
+    }
+    if entry.exe_size_max > 0 && exe_size > entry.exe_size_max {
+        return Err(format!(
+            "Game.exe trop grand ({} > max {})",
+            exe_size, entry.exe_size_max
+        ));
+    }
+    for d in &entry.required_dirs {
+        if !path_is_dir(root, d) {
+            return Err(format!("Dossier manquant: {}", d));
+        }
+    }
+    for f in &entry.required_files {
+        if !path_is_file(root, f) {
+            return Err(format!("Fichier manquant: {}", f));
+        }
+    }
+    for group in &entry.required_any_files {
+        if group.is_empty() {
+            continue;
+        }
+        let ok = group.iter().any(|f| path_is_file(root, f));
+        if !ok {
+            return Err(format!("Fichier manquant (un de): {:?}", group));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn is_fangame_allowed(path: String) -> Result<FangameAllowResult, String> {
+    is_fangame_allowed_lang(path, "FR".into())
+}
+
+#[tauri::command]
+pub fn is_fangame_allowed_lang(path: String, lang: String) -> Result<FangameAllowResult, String> {
+    let info = detect_fangame(&path);
+    let title = info.game_title.clone();
+    let exe_size = info.game_exe_size;
+    let lang_u = if lang.to_lowercase().starts_with("en") { "EN" } else { "FR" };
+
+    if !info.ok {
+        return Ok(FangameAllowResult {
+            allowed: false,
+            fangame_id: None,
+            display_name: None,
+            reason: format!("Fangame invalide: {}", info.message),
+            title,
+            exe_size,
+            plugins_ok: false,
+            plugins_missing: vec![],
+        });
+    }
+
+    let reg = load_registry()?;
+    let title_str = title.clone().unwrap_or_default();
+    let root = PathBuf::from(&info.root);
+
+    // Cherche une entree dont le titre matche, sinon refuse
+    let mut matched: Option<&FangameAllowEntry> = None;
+    for entry in &reg.allowed {
+        if title_str.trim() == entry.title_exact.trim() {
+            matched = Some(entry);
+            break;
+        }
+    }
+
+    let Some(entry) = matched else {
+        return Ok(FangameAllowResult {
+            allowed: false,
+            fangame_id: None,
+            display_name: None,
+            reason: format!(
+                "Fangame non autorise (titre {:?}). Seul infinitefusion est supporte.",
+                title_str
+            ),
+            title,
+            exe_size,
+            plugins_ok: false,
+            plugins_missing: vec![],
+        });
+    };
+
+    if let Err(reason) = validate_entry(&root, entry, &title_str, exe_size) {
+        return Ok(FangameAllowResult {
+            allowed: false,
+            fangame_id: Some(entry.id.clone()),
+            display_name: Some(entry.display_name.clone()),
+            reason,
+            title,
+            exe_size,
+            plugins_ok: false,
+            plugins_missing: vec![],
+        });
+    }
+
+    let (plugins_ok, plugins_missing) = check_plugins_on_disk(&root, entry, lang_u);
+    Ok(FangameAllowResult {
+        allowed: true,
+        fangame_id: Some(entry.id.clone()),
+        display_name: Some(entry.display_name.clone()),
+        reason: if plugins_ok {
+            "OK".into()
+        } else {
+            format!("OK fangame, plugins manquants: {:?}", plugins_missing)
+        },
+        title,
+        exe_size,
+        plugins_ok,
+        plugins_missing,
+    })
+}
+
+#[tauri::command]
+pub fn verify_fgl_plugins(game_path: String, lang: String) -> Result<FangameAllowResult, String> {
+    is_fangame_allowed_lang(game_path, lang)
+}
+
+#[tauri::command]
+pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, String> {
+    let allow = is_fangame_allowed_lang(game_path.clone(), lang.clone())?;
+    if !allow.allowed {
+        return Err(allow.reason);
+    }
+    let entry_id = allow.fangame_id.unwrap_or_else(|| "infinite_fusion".into());
+    let reg = load_registry()?;
+    let entry = reg
+        .allowed
+        .iter()
+        .find(|e| e.id == entry_id)
+        .cloned()
+        .ok_or_else(|| "entree registry introuvable".to_string())?;
+
+    let info = detect_fangame(&game_path);
+    let root = PathBuf::from(&info.root);
+    let lang_u = if lang.to_lowercase().starts_with("en") { "EN" } else { "FR" };
+    let other = if lang_u == "FR" { "EN" } else { "FR" };
+
+    let plugin_dest = if entry.plugin_dest.is_empty() {
+        root.join("Data").join("Scripts").join("052_AddOns")
+    } else {
+        join_rel(&root, &entry.plugin_dest)
+    };
+    std::fs::create_dir_all(&plugin_dest).map_err(|e| e.to_string())?;
+
+    let src_plugins = launcher_fangames_root().join(
+        entry.plugins_source.replace('/', std::path::MAIN_SEPARATOR_STR)
+    );
+    if !src_plugins.is_dir() {
+        return Err(format!("pack plugins launcher introuvable: {}", src_plugins.display()));
+    }
+
+    let plugins = if entry.plugins.is_empty() {
+        vec!["FGL_Battle".into(), "FGL_Trade".into(), "FGL_Net".into()]
+    } else {
+        entry.plugins.clone()
+    };
+
+    let mut installed = Vec::new();
+    for base in &plugins {
+        let _ = std::fs::remove_file(plugin_dest.join(format!("{}_{}.rb", base, other)));
+        let src = src_plugins.join(format!("{}_{}.rb", base, lang_u));
+        if !src.is_file() {
+            return Err(format!("manquant dans le pack: {}", src.display()));
+        }
+        let dst = plugin_dest.join(format!("{}_{}.rb", base, lang_u));
+        std::fs::copy(&src, &dst).map_err(|e| format!("copy {}: {}", base, e))?;
+        installed.push(format!("{}_{}.rb", base, lang_u));
+    }
+
+    let audio_dest = if entry.audio_dest.is_empty() {
+        root.join("Audio").join("BGM")
+    } else {
+        join_rel(&root, &entry.audio_dest)
+    };
+    std::fs::create_dir_all(&audio_dest).map_err(|e| e.to_string())?;
+    let src_audio = launcher_fangames_root().join(
+        entry.audio_source.replace('/', std::path::MAIN_SEPARATOR_STR)
+    );
+    for af in &entry.audio_files {
+        let s = src_audio.join(af);
+        if s.is_file() {
+            std::fs::copy(&s, audio_dest.join(af)).map_err(|e| e.to_string())?;
+            installed.push(af.clone());
+            break;
+        }
+    }
+
+    let (ok, missing) = check_plugins_on_disk(&root, &entry, lang_u);
+    if !ok {
+        return Err(format!("install incomplete: {:?}", missing));
+    }
+    Ok(format!("Install OK ({}) -> {} | {}", lang_u, plugin_dest.display(), installed.join(", ")))
+}
