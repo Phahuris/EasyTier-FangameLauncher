@@ -689,20 +689,6 @@ function collectPeersFromNetwork(network: any): { names: string[], ips: string[]
 
 }
 
-async function writeGameCommand(cmdLine: string) {
-  const root = (fangamePath.value || '').trim()
-  if (!root) {
-    addLog(uiLang.value === 'fr' ? 'Aucun fangame selectionne' : 'No fangame selected', 'warn')
-    return false
-  }
-  try {
-    await invoke('write_game_command', { gamePath: root, command: cmdLine })
-    return true
-  } catch (e) {
-    addLog('[CMD jeu] ' + String(e), 'warn')
-    return false
-  }
-}
 function showCommandHelp() {
   addLog(uiLang.value === 'fr' ? 'Commandes: /battle {pseudo}  |  /trade {pseudo}' : 'Commands: /battle {nickname}  |  /trade {nickname}', 'info')
 }
