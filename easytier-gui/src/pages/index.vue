@@ -86,7 +86,7 @@ const publicNodeCandidates = [
 
 watch(publicNodeUrl, (v) => localStorage.setItem('fgl_public_node', v))
 
-// Champs EasyTier simplifi├®s (Cr├®er)
+// Champs EasyTier simplifies (Creer)
 
 const hostNetworkName = ref(localStorage.getItem('fgl_net_name') || 'fangame')
 
@@ -96,7 +96,7 @@ const hostStatus = ref('')
 
 const hostShareCode = ref('')
 
-// Champs EasyTier simplifi├®s (Rejoindre)
+// Champs EasyTier simplifies (Rejoindre)
 
 const joinNetworkName = ref(localStorage.getItem('fgl_net_name') || 'fangame')
 
@@ -158,7 +158,7 @@ function addLog(msg: string, kind: string = 'info') {
 
 function logShareCode(_code: string) {
 
-  // Code affiche dans le bandeau host (bouton Copier) ÔÇö pas dans les logs
+  // Code affiche dans le bandeau host (bouton Copier) - pas dans les logs
 
 }
 
@@ -200,7 +200,7 @@ async function copyLogsChat() {
 
     await writeText(content)
 
-    addLog('Logs / Chat copi├®s')
+    addLog('Logs / Chat copies')
 
   }
 
@@ -212,7 +212,7 @@ async function copyLogsChat() {
 
       await navigator.clipboard.writeText(content)
 
-      addLog('Logs / Chat copi├®s')
+      addLog('Logs / Chat copies')
 
     }
 
@@ -231,155 +231,80 @@ async function copyLogsChat() {
 const uiLang = ref(localStorage.getItem('lang') || 'fr')
 
 const uiStrings: Record<string, Record<string, string>> = {
-
   fr: {
-
     title: 'FangameLauncher',
-
     pseudo: 'Ton pseudo',
-
-    create: 'Cr├®er une partie',
-
+    create: 'Cr\u00e9er une partie',
     join: 'Rejoindre une partie',
-
-    netName: 'Nom du r├®seau',
-
-    netSecret: 'Mot de passe r├®seau (secret)',
-
+    netName: 'Nom du r\u00e9seau',
+    netSecret: 'Mot de passe r\u00e9seau (secret)',
     peerUrl: 'Adresse du serveur (peer)',
-
     peerPh: 'ex: tcp://IP:11010',
-
-    startHost: 'D├®marrer la partie',
-
-    stopHost: 'Arr├¬ter',
-
+    startHost: 'D\u00e9marrer la partie',
+    stopHost: 'Arr\u00eater',
     doJoin: 'Rejoindre',
-
     language: 'Langue',
-
     logsChat: 'Logs / Chat',
-
     send: 'Envoyer',
-
-    advanced: 'Options avanc├®es EasyTier',
-
+    advanced: 'Options avanc\u00e9es EasyTier',
     needPseudo: 'Pseudo obligatoire.',
-
-    needName: 'Nom du r├®seau obligatoire.',
-
+    needName: 'Nom du r\u00e9seau obligatoire.',
     needPeer: 'Adresse du serveur obligatoire.',
-
-    noClient: 'Client EasyTier non connect├® (il faut le backend Tauri / easytier-core).',
-
-    hostOk: 'R├®seau host d├®marr├®.',
-
-    joinOk: 'Connexion au r├®seau lanc├®e.',
-
+    noClient: 'Client EasyTier non connect\u00e9 (il faut le backend Tauri / easytier-core).',
+    hostOk: 'R\u00e9seau host d\u00e9marr\u00e9.',
+    joinOk: 'Connexion au r\u00e9seau lanc\u00e9e.',
     hostRunning: 'Partie active (host)',
-
     noParty: 'Aucune partie',
-
     publicNode: 'Noeud public',
-
     fangame: 'Fangame',
-
-    fangamePh: 'Selection du fangame ÔÇö bientot disponible',
-
+    fangamePh: 'Selectionne un fangame',
     partyCode: 'Code de partie',
-
     partyCodePh: 'colle le code : nom|mdp|noeud',
-
     connected: 'Connecte au reseau',
-
     playerJoined: ' a rejoint la partie',
-
     hostStopped: 'Partie arretee.',
-
     searchingNode: 'Recherche d un noeud public...',
-
     nodeOk: 'Noeud public OK',
-
     nodeFail: 'Noeud indisponible',
-
     nodeFallback: 'Noeud de secours',
-
   },
-
   en: {
-
     title: 'FangameLauncher',
-
     pseudo: 'Nickname',
-
     create: 'Create party',
-
     join: 'Join party',
-
     netName: 'Network name',
-
     netSecret: 'Network password (secret)',
-
     peerUrl: 'Server address (peer)',
-
     peerPh: 'e.g. tcp://IP:11010',
-
     startHost: 'Start party',
-
     stopHost: 'Stop',
-
     doJoin: 'Join',
-
     language: 'Language',
-
     logsChat: 'Logs / Chat',
-
     send: 'Send',
-
     advanced: 'Advanced EasyTier options',
-
     needPseudo: 'Nickname required.',
-
     needName: 'Network name required.',
-
     needPeer: 'Server address required.',
-
     noClient: 'EasyTier client not connected (need Tauri backend / easytier-core).',
-
     hostOk: 'Host network started.',
-
     joinOk: 'Join network started.',
-
     hostRunning: 'Party active (host)',
-
     noParty: 'No party',
-
     publicNode: 'Public node',
-
     fangame: 'Fangame',
-
-    fangamePh: 'Fangame selection ÔÇö coming soon',
-
+    fangamePh: 'Select a fangame',
     partyCode: 'Party code',
-
     partyCodePh: 'paste code: name|password|node',
-
     connected: 'Connected to network',
-
     playerJoined: ' joined the party',
-
     hostStopped: 'Party stopped.',
-
     searchingNode: 'Looking for a public node...',
-
     nodeOk: 'Public node OK',
-
     nodeFail: 'Node unavailable',
-
     nodeFallback: 'Fallback node',
-
   },
-
 }
 
 const s = computed(() => uiStrings[uiLang.value] || uiStrings.fr)
@@ -1574,7 +1499,7 @@ async function initWithMode(mode: Mode) {
 
   clientRunning.value = await isClientRunning().catch(() => false)
 
-  addLog(clientRunning.value ? 'EasyTier pr├¬t' : 'Backend non disponible (mode navigateur)')
+  addLog(clientRunning.value ? 'EasyTier pret' : 'Backend non disponible (mode navigateur)')
 
 }
 
@@ -1668,7 +1593,7 @@ onMounted(async () => {
 
     hostStatus.value = s.value.noParty
 
-  addLog('FangameLauncher d├®marr├®')
+  addLog('FangameLauncher demarre')
 
   onUnmounted(() => cleanupFns.forEach(fn => fn()))
 
@@ -2164,7 +2089,7 @@ const configServerConnectionStatus = computed(() => {
 
       <button type="button" class="fgl-adv-toggle" @click="showAdvanced = !showAdvanced">
 
-        {{ showAdvanced ? 'Ôû╝' : 'ÔûÂ' }} {{ s.advanced }} <span class="fgl-adv-note">(pas n├®cessaire ÔÇö d├®j├á configur├® par d├®faut)</span>
+        {{ showAdvanced ? 'Ôû╝' : 'ÔûÂ' }} {{ s.advanced }} <span class="fgl-adv-note">(pas necessaire - deja configure par defaut)</span>
 
         <span v-if="!clientRunning" class="fgl-badge">backend off</span>
 
