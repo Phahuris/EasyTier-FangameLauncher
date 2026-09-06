@@ -885,15 +885,7 @@ async function refreshPeers() {
     peerIps.value = ipList
 
     if (changed) {
-
-      void 0 [' + nameList.join(', ') + '] / ' +
-
-        ipList.length + ' IP [' + ipList.join(', ') + ']',
-
-        ipList.length > 0 ? 'ok' : 'warn'
-
-      )
-
+      // peers mis a jour silencieusement
     }
 
   } catch {
@@ -2072,7 +2064,7 @@ const configServerConnectionStatus = computed(() => {
 
         <div class="fgl-actions">
 
-          <button type="button" class="fgl-btn green" :disabled="isBusy" @click="startHost" :disabled="isBusy || !canStartParty">{{ s.startHost }}</button>
+          <button type="button" class="fgl-btn green" :disabled="isBusy || !canStartParty" @click="startHost">{{ s.startHost }}</button>
 
         </div>
 
@@ -2156,7 +2148,7 @@ const configServerConnectionStatus = computed(() => {
 
         <div class="fgl-actions">
 
-          <button type="button" class="fgl-btn blue" :disabled="isBusy" @click="startJoin" :disabled="isBusy || !canStartParty">{{ s.doJoin }}</button>
+          <button type="button" class="fgl-btn blue" :disabled="isBusy || !canStartParty" @click="startJoin">{{ s.doJoin }}</button>
 
         </div>
 
