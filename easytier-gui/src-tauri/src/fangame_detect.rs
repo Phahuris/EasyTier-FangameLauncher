@@ -584,6 +584,26 @@ pub fn cleanup_fgl_temp(game_path: String) -> Result<u32, String> {
     Ok(n)
 }
 
+// ===== TOUT EMBARQUE DANS LE .EXE =====
+const FGL_BATTLE_FR_RB: &str = include_str!("../embedded_plugins/FGL_Battle_FR.rb");
+const FGL_BATTLE_EN_RB: &str = include_str!("../embedded_plugins/FGL_Battle_EN.rb");
+const FGL_TRADE_FR_RB: &str = include_str!("../embedded_plugins/FGL_Trade_FR.rb");
+const FGL_TRADE_EN_RB: &str = include_str!("../embedded_plugins/FGL_Trade_EN.rb");
+const FGL_NET_FR_RB: &str = include_str!("../embedded_plugins/FGL_Net_FR.rb");
+const FGL_NET_EN_RB: &str = include_str!("../embedded_plugins/FGL_Net_EN.rb");
+const FGL_BATTLE_MP3: &[u8] = include_bytes!("../embedded_plugins/FGL_Battle.mp3");
+
+fn embedded_plugin_src(base: &str, lang: &str) -> Result<&'static str, String> {
+    match (base, lang) {
+        ("FGL_Battle", "FR") => Ok(FGL_BATTLE_FR_RB),
+        ("FGL_Battle", "EN") => Ok(FGL_BATTLE_EN_RB),
+        ("FGL_Trade", "FR") => Ok(FGL_TRADE_FR_RB),
+        ("FGL_Trade", "EN") => Ok(FGL_TRADE_EN_RB),
+        ("FGL_Net", "FR") => Ok(FGL_NET_FR_RB),
+        ("FGL_Net", "EN") => Ok(FGL_NET_EN_RB),
+        _ => Err(format!("plugin inconnu: {}_{}", base, lang)),
+    }
+}
 // ===== FGL REGISTRY EMBEDDED (single copy) =====
 const FGL_REGISTRY_JSON: &str = include_str!("fgl_registry.json");
 
@@ -870,18 +890,6 @@ pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, St
     };
     std::fs::create_dir_all(&plugin_dest).map_err(|e| e.to_string())?;
 
-    let src_plugins = launcher_fangames_root().join(
-        entry
-            .plugins_source
-            .replace('/', std::path::MAIN_SEPARATOR_STR),
-    );
-    if !src_plugins.is_dir() {
-        return Err(format!(
-            "pack plugins launcher introuvable: {}",
-            src_plugins.display()
-        ));
-    }
-
     let plugins = if entry.plugins.is_empty() {
         vec![
             "FGL_Battle".into(),
@@ -895,12 +903,9 @@ pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, St
     let mut installed = Vec::new();
     for base in &plugins {
         let _ = std::fs::remove_file(plugin_dest.join(format!("{}_{}.rb", base, other)));
-        let src = src_plugins.join(format!("{}_{}.rb", base, lang_u));
-        if !src.is_file() {
-            return Err(format!("manquant dans le pack: {}", src.display()));
-        }
+        let src = embedded_plugin_src(base, lang_u)?;
         let dst = plugin_dest.join(format!("{}_{}.rb", base, lang_u));
-        std::fs::copy(&src, &dst).map_err(|e| format!("copy {}: {}", base, e))?;
+        std::fs::write(&dst, src).map_err(|e| format!("write {}: {}", base, e))?;
         installed.push(format!("{}_{}.rb", base, lang_u));
     }
 
@@ -910,19 +915,9 @@ pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, St
         join_rel(&root, &entry.audio_dest)
     };
     std::fs::create_dir_all(&audio_dest).map_err(|e| e.to_string())?;
-    let src_audio = launcher_fangames_root().join(
-        entry
-            .audio_source
-            .replace('/', std::path::MAIN_SEPARATOR_STR),
-    );
-    for af in &entry.audio_files {
-        let s = src_audio.join(af);
-        if s.is_file() {
-            std::fs::copy(&s, audio_dest.join(af)).map_err(|e| e.to_string())?;
-            installed.push(af.clone());
-            break;
-        }
-    }
+    std::fs::write(audio_dest.join("FGL_Battle.mp3"), FGL_BATTLE_MP3)
+        .map_err(|e| format!("write mp3: {}", e))?;
+    installed.push("FGL_Battle.mp3".into());
 
     let (ok, missing) = check_plugins_on_disk(&root, &entry, lang_u);
     if !ok {
