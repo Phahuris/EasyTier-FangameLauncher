@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 
 import { type } from '@tauri-apps/plugin-os'
 
@@ -6,15 +6,12 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { listen } from '@tauri-apps/api/event'
 
-import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 
-import { open } from '@tauri-apps/plugin-shell'
 
 import { exit } from '@tauri-apps/plugin-process'
 
-import { I18nUtils, RemoteManagement, Utils } from "easytier-frontend-lib"
+import { I18nUtils, Utils } from "easytier-frontend-lib"
 
-import type { MenuItem } from 'primevue/menuitem'
 
 import { useTray } from '~/composables/tray'
 
@@ -56,13 +53,11 @@ const activeTab = ref<'create' | 'join'>('create')
 
 const pseudo = ref(localStorage.getItem('fgl_pseudo') || '')
 
-const chatInput = ref('')
 
 const logLines = ref<{ ts: string, text: string, kind: string }[]>([])
 
 const isBusy = ref(false)
 
-const showAdvanced = ref(false)
 
 const peerList = ref<string[]>([])
 
@@ -179,50 +174,6 @@ function copyShareCode() {
   } else {
 
     addLog('Code: ' + code)
-
-  }
-
-}
-
-async function copyLogsChat() {
-
-  const content = logLines.value.map(l => '[' + l.ts + '] ' + l.text).join('\n')
-
-  if (!content) {
-
-    addLog('Logs / Chat vide')
-
-    return
-
-  }
-
-  try {
-
-    await writeText(content)
-
-    addLog('Logs / Chat copies')
-
-  }
-
-  catch (e) {
-
-    console.error('[LOGS] Copie impossible:', e)
-
-    try {
-
-      await navigator.clipboard.writeText(content)
-
-      addLog('Logs / Chat copies')
-
-    }
-
-    catch (e2) {
-
-      console.error('[LOGS] Clipboard navigateur impossible:', e2)
-
-      addLog('Copie des Logs / Chat impossible')
-
-    }
 
   }
 
@@ -614,97 +565,6 @@ function collectPeersFromNetwork(network: any): { names: string[], ips: string[]
 
 }
 
-function showCommandHelp() {
-  addLog(uiLang.value === 'fr' ? 'Commandes: /battle {pseudo}  |  /trade {pseudo}' : 'Commands: /battle {nickname}  |  /trade {nickname}', 'info')
-}
-
-async function sendChat() {
-  const msg = chatInput.value.trim()
-  if (!msg) return
-  const name = pseudo.value.trim() || 'Anonyme'
-  chatInput.value = ''
-
-  const battleMatch = msg.match(/^\/battle\s+(.+)$/i)
-  const tradeMatch = msg.match(/^\/trade\s+(.+)$/i)
-  if (battleMatch || tradeMatch) {
-    const plugin = battleMatch ? 'battle' : 'trade'
-    const target = ((battleMatch ? battleMatch[1] : tradeMatch![1]) || '').trim()
-    if (!target) {
-      addLog(uiLang.value === 'fr' ? 'Pseudo manquant' : 'Missing nickname', 'warn')
-      return
-    }
-    if (target.toLowerCase() === name.toLowerCase()) {
-      addLog(uiLang.value === 'fr' ? 'Utilisateur invalide' : 'Invalid user', 'warn')
-      return
-    }
-    if (!clientRunning.value || !isNetworkActive.value) {
-      addLog(uiLang.value === 'fr' ? 'Reseau inactif' : 'Network inactive', 'warn')
-      return
-    }
-    try {
-      await invoke('chat_start')
-      await refreshPeers()
-      const names = peerList.value.map(n => n.toLowerCase())
-      if (names.length > 0 && !names.includes(target.toLowerCase())) {
-        addLog(uiLang.value === 'fr' ? 'Utilisateur invalide' : 'Invalid user', 'warn')
-        return
-      }
-      let peers = [...peerIps.value]
-      if (peers.length === 0) {
-        const result = await invoke<any>('list_network_instance_ids')
-        const ids = normalizeInstIds(result)
-        for (const id of ids) {
-          try {
-            const info = await invoke<any>('collect_network_info', { inst_id: id })
-            const network = info?.info?.map?.[id] || info?.map?.[id] || info
-            peers.push(...collectPeersFromNetwork(network).ips)
-          } catch { /* ignore */ }
-        }
-        peers = [...new Set(peers)]
-      }
-      if (peers.length > 0) {
-        await invoke('chat_send_cmd', { pseudo: name, plugin, action: target, peers })
-      }
-      const root = (fangamePath.value || '').trim()
-      if (root) {
-        await invoke('write_game_command', { gamePath: root, command: '/' + plugin + ' ' + target })
-      }
-      addLog(
-        (uiLang.value === 'fr'
-          ? (plugin === 'battle' ? 'Demande de combat envoyee a ' : 'Demande d echange envoyee a ')
-          : (plugin === 'battle' ? 'Battle request sent to ' : 'Trade request sent to ')) + target,
-        'ok'
-      )
-    } catch (e) {
-      addLog('[CMD] ' + String(e), 'warn')
-    }
-    return
-  }
-
-  addLog(name + ' : ' + msg, 'chat')
-  if (!clientRunning.value || !isNetworkActive.value) return
-  try {
-    await invoke('chat_start')
-    await refreshPeers()
-    let peers = [...peerIps.value]
-    if (peers.length === 0) {
-      const result = await invoke<any>('list_network_instance_ids')
-      const ids = normalizeInstIds(result)
-      for (const id of ids) {
-        try {
-          const info = await invoke<any>('collect_network_info', { inst_id: id })
-          const network = info?.info?.map?.[id] || info?.map?.[id] || info
-          peers.push(...collectPeersFromNetwork(network).ips)
-        } catch { /* ignore */ }
-      }
-      peers = [...new Set(peers)]
-    }
-    if (peers.length === 0) return
-    await invoke('chat_send', { pseudo: name, text: msg, peers })
-  } catch (e) {
-    addLog('[Chat] ' + String(e), 'warn')
-  }
-}
 async function refreshPeers() {
 
   if (!clientRunning.value) {
@@ -809,9 +669,6 @@ async function refreshPeers() {
 
 onMounted(() => {
 
-  showCommandHelp()
-  const helpTimer = setInterval(() => showCommandHelp(), 15 * 60 * 1000)
-  onUnmounted(() => clearInterval(helpTimer))
   const peerTimer = setInterval(() => {
 
     if (isNetworkActive.value && clientRunning.value) {
@@ -1691,90 +1548,6 @@ onMounted(async () => {
 
 })
 
-let current_log_level = 'off'
-
-const log_menu = ref()
-
-async function getLogDirPath(): Promise<string> {
-
-  return await invoke<string>('get_log_dir_path')
-
-}
-
-const log_menu_items_popup: Ref<MenuItem[]> = ref([
-
-  ...['off', 'warn', 'info', 'debug', 'trace'].map(level => ({
-
-    label: () => t(`logging_level_${level}`) + (current_log_level === level ? ' ├ö┬úo' : ''),
-
-    command: async () => { current_log_level = level; await setLoggingLevel(level) },
-
-  })),
-
-  { separator: true },
-
-  {
-
-    label: () => t('logging_open_dir'),
-
-    icon: 'pi pi-folder-open',
-
-    command: async () => { await open(await getLogDirPath()) },
-
-    visible: () => type() !== 'android',
-
-  },
-
-  {
-
-    label: () => t('logging_copy_dir'),
-
-    icon: 'pi pi-tablet',
-
-    command: async () => { await writeText(await getLogDirPath()) },
-
-  },
-
-])
-
-function toggle_log_menu(event: any) { log_menu.value.toggle(event) }
-
-function getLabel(item: MenuItem) { return typeof item.label === 'function' ? item.label() : item.label }
-
-const setting_menu_items: Ref<MenuItem[]> = ref([
-
-  {
-
-    label: () => t('mode.switch_mode') + ': ' + t('mode.' + currentMode.value.mode),
-
-    icon: 'pi pi-sync',
-
-    command: openModeDialog,
-
-    visible: () => type() !== 'android',
-
-  },
-
-  {
-
-    label: () => `${t('config-server.title')}${t('config-server.' + configServerConnectionStatus.value)}`,
-
-    icon: 'pi pi-globe',
-
-    command: openConfigServerDialog,
-
-    visible: () => ["normal", "service"].includes(currentMode.value.mode),
-
-  },
-
-  { key: 'logging_menu', label: () => t('logging'), icon: 'pi pi-file', items: [] },
-
-  { label: () => t('about.title'), icon: 'pi pi-at', command: async () => { aboutVisible.value = true } },
-
-  { label: () => t('exit'), icon: 'pi pi-power-off', command: async () => { await exit(1) } },
-
-])
-
 async function connectRpcClient(isNormalMode: boolean, url?: string) {
 
   await initRpcConnection(isNormalMode, url)
@@ -1850,400 +1623,6 @@ const configServerConnectionStatus = computed(() => {
         <Button :label="t('web.common.save')" icon="pi pi-save" @click="onModeSave" autofocus :loading="isModeSaving" />
 
       </template>
-
-    </Dialog>
-
-    <Dialog v-model:visible="configServerDialogVisible" modal :header="t('config-server.title')" :style="{ width: '50vw' }">
-
-      <div class="flex flex-col gap-3">
-
-        <label>{{ t('config-server.address') }}</label>
-
-        <InputText v-model="(editingMode as WebClientConfig).config_server_url" />
-
-      </div>
-
-      <template #footer>
-
-        <Button :label="t('web.common.cancel')" @click="configServerDialogVisible = false" text />
-
-        <Button :label="t('web.common.save')" @click="onConfigServerSave" autofocus />
-
-      </template>
-
-    </Dialog>
-
-    <Menu ref="log_menu" :model="log_menu_items_popup" :popup="true" />
-
-    <!-- BANDEAU DEMO -->
-
-    <div v-if="!clientRunning" class="fgl-banner-demo">
-
-      MODE DEMO - backend EasyTier non actif
-
-    </div>
-
-    <!-- ONGLET STYLE CHROME + LANGUE -->
-
-    <div class="fgl-chrome">
-
-      <div class="fgl-chrome-tabs">
-
-        <button type="button" class="fgl-chrome-tab" :class="{ active: activeTab === 'create' }" @click="activeTab = 'create'">{{ s.create }}</button>
-
-        <button type="button" class="fgl-chrome-tab" :class="{ active: activeTab === 'join' }" @click="activeTab = 'join'">{{ s.join }}</button>
-
-      </div>
-
-      <div class="fgl-chrome-right">
-
-        <select class="fgl-select" :value="uiLang" @change="setLanguage(($event.target as HTMLSelectElement).value)">
-
-          <option value="fr">Fran├ºais</option>
-
-          <option value="en">English</option>
-
-        </select>
-
-      </div>
-
-    </div>
-    <!-- CREATE -->
-
-    <div v-show="activeTab === 'create'" class="fgl-panel">
-
-      <div v-if="!isNetworkActive" class="fgl-card">
-
-        <div class="fgl-simple-form">
-
-          <div class="fgl-field">
-            <label class="fgl-label">{{ s.pseudo }}</label>
-            <input
-              class="fgl-input"
-              v-model="pseudo"
-              type="text"
-              maxlength="32"
-              placeholder="Pseudo..."
-            />
-          </div>
-
-          <div class="fgl-simple-row">
-
-            <div class="fgl-field">
-              <label class="fgl-label">Nom de la salle</label>
-              <input
-                class="fgl-input"
-                v-model="hostNetworkName"
-                type="text"
-              />
-            </div>
-
-            <div class="fgl-field">
-              <label class="fgl-label">MDP</label>
-              <input
-                class="fgl-input"
-                v-model="hostNetworkSecret"
-                type="password"
-              />
-            </div>
-
-          </div>
-
-          <div class="fgl-field">
-
-            <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
-
-            <div class="fgl-fangame-row">
-
-              <input
-                class="fgl-input"
-                v-model="fangamePath"
-                type="text"
-                :placeholder="s.fangamePh || 'Game.exe'"
-              />
-
-              <button
-                type="button"
-                class="fgl-btn"
-                @click="browseFangame"
-              >
-                ...
-              </button>
-
-            </div>
-
-            <div
-              v-if="fangameTitle"
-              class="fgl-fangame-title"
-            >
-              <span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">
-                {{ fangameDisplayName || fangameTitle }}
-              </span>
-            </div>
-
-          </div>
-
-        </div>
-
-        <div class="fgl-actions">
-
-          <button
-            type="button"
-            class="fgl-btn green"
-            :disabled="isBusy || !canStartParty"
-            @click="startHost"
-          >
-            {{ s.startHost }}
-          </button>
-
-        </div>
-
-      </div>
-
-      <div v-else class="fgl-card fgl-card-running">
-
-        <div class="fgl-running-line">
-          <span>Partie</span>
-          <strong>{{ hostNetworkName }}</strong>
-        </div>
-
-        <div
-          class="fgl-running-line"
-          v-if="hostShareCode"
-        >
-          <span>Code</span>
-
-          <input
-            class="fgl-input fgl-share"
-            :value="hostShareCode"
-            readonly
-            @focus="($event.target as HTMLInputElement).select()"
-          />
-
-          <button
-            type="button"
-            class="fgl-btn"
-            @click="copyShareCode"
-          >
-            Copier
-          </button>
-        </div>
-
-        <div class="fgl-actions">
-
-          <button
-            type="button"
-            class="fgl-btn red"
-            :disabled="isBusy"
-            @click="stopHost"
-          >
-            {{ s.stopHost }}
-          </button>
-
-        </div>
-
-        <div class="fgl-status">
-          {{ hostStatus }}
-        </div>
-
-      </div>
-
-    </div>
-
-    <!-- JOIN -->
-
-    <div v-show="activeTab === 'join'" class="fgl-panel">
-
-      <div v-if="!isNetworkActive" class="fgl-card">
-
-        <div class="fgl-simple-form">
-
-          <div class="fgl-field">
-            <label class="fgl-label">{{ s.pseudo }}</label>
-
-            <input
-              class="fgl-input"
-              v-model="pseudo"
-              type="text"
-              maxlength="32"
-              placeholder="Pseudo..."
-            />
-          </div>
-
-          <div class="fgl-field">
-
-            <label class="fgl-label">Code de la partie</label>
-
-            <input
-              class="fgl-input"
-              v-model="joinCode"
-              type="text"
-              :placeholder="s.partyCodePh || 'nom|mdp|adresse serveur'"
-            />
-
-          </div>
-
-          <div class="fgl-field">
-
-            <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
-
-            <div class="fgl-fangame-row">
-
-              <input
-                class="fgl-input"
-                v-model="fangamePath"
-                type="text"
-                :placeholder="s.fangamePh || 'Game.exe'"
-              />
-
-              <button
-                type="button"
-                class="fgl-btn"
-                @click="browseFangame"
-              >
-                ...
-              </button>
-
-            </div>
-
-            <div
-              v-if="fangameTitle"
-              class="fgl-fangame-title"
-            >
-              <span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">
-                {{ fangameDisplayName || fangameTitle }}
-              </span>
-            </div>
-
-          </div>
-
-        </div>
-
-        <div class="fgl-actions">
-
-          <button
-            type="button"
-            class="fgl-btn blue"
-            :disabled="isBusy || !canStartParty"
-            @click="startJoin"
-          >
-            {{ s.doJoin }}
-          </button>
-
-        </div>
-
-      </div>
-
-      <div v-else class="fgl-card fgl-card-running">
-
-        <div class="fgl-running-line">
-          <span>Partie</span>
-          <strong>{{ joinNetworkName }}</strong>
-        </div>
-
-        <div class="fgl-actions">
-
-          <button
-            type="button"
-            class="fgl-btn red"
-            :disabled="isBusy"
-            @click="stopHost"
-          >
-            {{ s.stopHost }}
-          </button>
-
-        </div>
-
-        <div class="fgl-status">
-          {{ joinStatus }}
-        </div>
-
-      </div>
-
-    </div>
-
-    <!-- JOUEURS -->
-
-    <div class="fgl-players-panel">
-
-      <div class="fgl-label">
-        Joueurs en ligne
-      </div>
-
-      <div class="fgl-players-grid">
-
-        <div
-          v-for="(name, i) in peerList"
-          :key="i"
-          class="fgl-player-card"
-        >
-          {{ name }}
-        </div>
-
-        <div
-          v-if="peerList.length === 0"
-          class="fgl-peer-empty"
-        >
-          Aucun joueur
-        </div>
-
-      </div>
-
-    </div>
-
-  </div>
-
-</template>
-
-        </Menubar>
-
-      </div>
-
-    </div>
-
-    <!-- JOUEURS + LOGS -->
-
-    <div class="fgl-bottom">
-
-      <div class="fgl-peers">
-
-        <div class="fgl-label">Joueurs</div>
-
-        <div class="fgl-peerbox">
-
-          <div v-if="peerList.length === 0" class="fgl-peer-empty">-</div>
-
-          <div v-for="(name, i) in peerList" :key="i" class="fgl-peer">{{ name }}</div>
-
-        </div>
-
-      </div>
-
-      <div class="fgl-logs-wrap">
-
-        <div class="fgl-label">{{ s.logsChat }}</div>
-
-        <div id="fgl-logbox" class="fgl-logbox">
-
-          <div v-for="(line, i) in logLines" :key="i" class="fgl-logline" :class="'fgl-log-' + (line.kind || 'info')"><span class="fgl-log-ts">[{{ line.ts }}]</span> {{ line.text }}</div>
-
-        </div>
-
-        <div class="fgl-chatrow">
-
-          <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
-
-          <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>          <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">Copier Logs / Chat</button>
-
-        </div>
-
-      </div>
-
-    </div>
-
-  </div>
-
-</template>
 
 <style scoped lang="postcss">
 
@@ -2899,3 +2278,4 @@ const configServerConnectionStatus = computed(() => {
 }
 
 </style>
+
