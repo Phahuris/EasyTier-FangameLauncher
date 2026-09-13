@@ -1908,66 +1908,78 @@ const configServerConnectionStatus = computed(() => {
       </div>
 
     </div>
-
-        <!-- CREATE -->
+    <!-- CREATE -->
 
     <div v-show="activeTab === 'create'" class="fgl-panel">
 
       <div v-if="!isNetworkActive" class="fgl-card">
 
-        <div class="fgl-grid fgl-grid-create">
+        <div class="fgl-simple-form">
 
           <div class="fgl-field">
-
             <label class="fgl-label">{{ s.pseudo }}</label>
+            <input
+              class="fgl-input"
+              v-model="pseudo"
+              type="text"
+              maxlength="32"
+              placeholder="Pseudo..."
+            />
+          </div>
 
-            <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
+          <div class="fgl-simple-row">
+
+            <div class="fgl-field">
+              <label class="fgl-label">Nom de la salle</label>
+              <input
+                class="fgl-input"
+                v-model="hostNetworkName"
+                type="text"
+              />
+            </div>
+
+            <div class="fgl-field">
+              <label class="fgl-label">MDP</label>
+              <input
+                class="fgl-input"
+                v-model="hostNetworkSecret"
+                type="password"
+              />
+            </div>
 
           </div>
 
           <div class="fgl-field">
-
-            <label class="fgl-label">{{ s.netName }}</label>
-
-            <input class="fgl-input" v-model="hostNetworkName" type="text" />
-
-          </div>
-
-          <div class="fgl-field">
-
-            <label class="fgl-label">{{ s.netSecret }}</label>
-
-            <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
-
-          </div>
-
-          <div class="fgl-field">
-
-            <label class="fgl-label">{{ s.publicNode || 'Public node' }}</label>
-
-            <input class="fgl-input" v-model="publicNodeUrl" type="text" placeholder="tcp://easytier-us.slarker.me:11010" />
-
-          </div>
-
-          <div class="fgl-field fgl-field-half">
 
             <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
 
             <div class="fgl-fangame-row">
 
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh || 'Game.exe'" />
+              <input
+                class="fgl-input"
+                v-model="fangamePath"
+                type="text"
+                :placeholder="s.fangamePh || 'Game.exe'"
+              />
 
-              <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
+              <button
+                type="button"
+                class="fgl-btn"
+                @click="browseFangame"
+              >
+                ...
+              </button>
 
             </div>
 
-          </div>
-
-          <div class="fgl-field fgl-field-half">
-
-            <label class="fgl-label">&nbsp;</label>
-
-            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
+            <div
+              v-if="fangameTitle"
+              class="fgl-fangame-title"
+            >
+              <span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">
+                {{ fangameDisplayName || fangameTitle }}
+              </span>
+            </div>
 
           </div>
 
@@ -1975,7 +1987,14 @@ const configServerConnectionStatus = computed(() => {
 
         <div class="fgl-actions">
 
-          <button type="button" class="fgl-btn green" :disabled="isBusy || !canStartParty" @click="startHost">{{ s.startHost }}</button>
+          <button
+            type="button"
+            class="fgl-btn green"
+            :disabled="isBusy || !canStartParty"
+            @click="startHost"
+          >
+            {{ s.startHost }}
+          </button>
 
         </div>
 
@@ -1983,27 +2002,49 @@ const configServerConnectionStatus = computed(() => {
 
       <div v-else class="fgl-card fgl-card-running">
 
-        <div class="fgl-running-line"><span>Reseau</span><strong>{{ hostNetworkName }}</strong></div>
+        <div class="fgl-running-line">
+          <span>Partie</span>
+          <strong>{{ hostNetworkName }}</strong>
+        </div>
 
-        <div class="fgl-running-line"><span>Noeud</span><strong>{{ publicNodeUrl }}</strong></div>
-
-        <div class="fgl-running-line" v-if="hostShareCode">
-
+        <div
+          class="fgl-running-line"
+          v-if="hostShareCode"
+        >
           <span>Code</span>
 
-          <input class="fgl-input fgl-share" :value="hostShareCode" readonly @focus="($event.target as HTMLInputElement).select()" />
+          <input
+            class="fgl-input fgl-share"
+            :value="hostShareCode"
+            readonly
+            @focus="($event.target as HTMLInputElement).select()"
+          />
 
-          <button type="button" class="fgl-btn" @click="copyShareCode">Copier</button>
-
+          <button
+            type="button"
+            class="fgl-btn"
+            @click="copyShareCode"
+          >
+            Copier
+          </button>
         </div>
 
         <div class="fgl-actions">
 
-          <button type="button" class="fgl-btn red" :disabled="isBusy" @click="stopHost">{{ s.stopHost }}</button>
+          <button
+            type="button"
+            class="fgl-btn red"
+            :disabled="isBusy"
+            @click="stopHost"
+          >
+            {{ s.stopHost }}
+          </button>
 
         </div>
 
-        <div class="fgl-status">{{ hostStatus }}</div>
+        <div class="fgl-status">
+          {{ hostStatus }}
+        </div>
 
       </div>
 
@@ -2015,43 +2056,64 @@ const configServerConnectionStatus = computed(() => {
 
       <div v-if="!isNetworkActive" class="fgl-card">
 
-        <div class="fgl-grid fgl-grid-join">
+        <div class="fgl-simple-form">
 
-          <div class="fgl-field fgl-field-pseudo">
-
+          <div class="fgl-field">
             <label class="fgl-label">{{ s.pseudo }}</label>
 
-            <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
+            <input
+              class="fgl-input"
+              v-model="pseudo"
+              type="text"
+              maxlength="32"
+              placeholder="Pseudo..."
+            />
+          </div>
+
+          <div class="fgl-field">
+
+            <label class="fgl-label">Code de la partie</label>
+
+            <input
+              class="fgl-input"
+              v-model="joinCode"
+              type="text"
+              :placeholder="s.partyCodePh || 'nom|mdp|adresse serveur'"
+            />
 
           </div>
 
-          <div class="fgl-field fgl-field-code">
-
-            <label class="fgl-label">{{ s.partyCode || 'Party code' }}</label>
-
-            <input class="fgl-input" v-model="joinCode" type="text" :placeholder="s.partyCodePh || 'name|password|node'" />
-
-          </div>
-
-          <div class="fgl-field fgl-field-half">
+          <div class="fgl-field">
 
             <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
 
             <div class="fgl-fangame-row">
 
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh || 'Game.exe'" />
+              <input
+                class="fgl-input"
+                v-model="fangamePath"
+                type="text"
+                :placeholder="s.fangamePh || 'Game.exe'"
+              />
 
-              <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
+              <button
+                type="button"
+                class="fgl-btn"
+                @click="browseFangame"
+              >
+                ...
+              </button>
 
             </div>
 
-          </div>
-
-          <div class="fgl-field fgl-field-half">
-
-            <label class="fgl-label">&nbsp;</label>
-
-            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
+            <div
+              v-if="fangameTitle"
+              class="fgl-fangame-title"
+            >
+              <span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">
+                {{ fangameDisplayName || fangameTitle }}
+              </span>
+            </div>
 
           </div>
 
@@ -2059,7 +2121,14 @@ const configServerConnectionStatus = computed(() => {
 
         <div class="fgl-actions">
 
-          <button type="button" class="fgl-btn blue" :disabled="isBusy || !canStartParty" @click="startJoin">{{ s.doJoin }}</button>
+          <button
+            type="button"
+            class="fgl-btn blue"
+            :disabled="isBusy || !canStartParty"
+            @click="startJoin"
+          >
+            {{ s.doJoin }}
+          </button>
 
         </div>
 
@@ -2067,71 +2136,64 @@ const configServerConnectionStatus = computed(() => {
 
       <div v-else class="fgl-card fgl-card-running">
 
-        <div class="fgl-running-line"><span>Reseau</span><strong>{{ joinNetworkName }}</strong></div>
-
-        <div class="fgl-running-line"><span>Noeud</span><strong>{{ joinPeerUrl || publicNodeUrl }}</strong></div>
+        <div class="fgl-running-line">
+          <span>Partie</span>
+          <strong>{{ joinNetworkName }}</strong>
+        </div>
 
         <div class="fgl-actions">
 
-          <button type="button" class="fgl-btn red" :disabled="isBusy" @click="stopHost">{{ s.stopHost }}</button>
+          <button
+            type="button"
+            class="fgl-btn red"
+            :disabled="isBusy"
+            @click="stopHost"
+          >
+            {{ s.stopHost }}
+          </button>
 
         </div>
 
-        <div class="fgl-status">{{ joinStatus }}</div>
+        <div class="fgl-status">
+          {{ joinStatus }}
+        </div>
 
       </div>
 
     </div>
 
-    <!-- AVANCE -->
+    <!-- JOUEURS -->
 
-    <div class="fgl-adv">
+    <div class="fgl-players-panel">
 
-      <button type="button" class="fgl-adv-toggle" @click="showAdvanced = !showAdvanced">
+      <div class="fgl-label">
+        Joueurs en ligne
+      </div>
 
-        {{ showAdvanced ? 'Ôû╝' : 'ÔûÂ' }} {{ s.advanced }} <span class="fgl-adv-note">(pas necessaire - deja configure par defaut)</span>
+      <div class="fgl-players-grid">
 
-        <span v-if="!clientRunning" class="fgl-badge">backend off</span>
-
-      </button>
-
-      <div v-show="showAdvanced" class="fgl-adv-body">
-
-        <RemoteManagement
-
-          v-if="clientRunning"
-
-          :api="remoteClient"
-
-          :pause-auto-refresh="isModeSaving"
-
-          v-model:instance-id="instanceId"
-
-        />
-
-        <div v-else class="fgl-adv-off">
-
-          Backend OFF - options EasyTier completes avec Tauri.
-
+        <div
+          v-for="(name, i) in peerList"
+          :key="i"
+          class="fgl-player-card"
+        >
+          {{ name }}
         </div>
 
-        <Menubar :model="setting_menu_items" breakpoint="795px" class="fgl-menubar">
+        <div
+          v-if="peerList.length === 0"
+          class="fgl-peer-empty"
+        >
+          Aucun joueur
+        </div>
 
-          <template #item="{ item, props }">
+      </div>
 
-            <a v-if="item.key === 'logging_menu'" v-bind="props.action" @click="toggle_log_menu">
+    </div>
 
-              <span :class="item.icon" /><span class="p-menubar-item-label">{{ getLabel(item) }}</span>
+  </div>
 
-            </a>
-
-            <a v-else v-bind="props.action">
-
-              <span :class="item.icon" /><span class="p-menubar-item-label">{{ getLabel(item) }}</span>
-
-            </a>
-
-          </template>
+</template>
 
         </Menubar>
 
@@ -2315,6 +2377,71 @@ const configServerConnectionStatus = computed(() => {
 
 .fgl-card-running { border-color: #2e7d32; }
 
+.fgl-simple-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fgl-simple-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.fgl-fangame-title {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fangame-ok {
+  color: #43a047;
+}
+
+.fangame-bad {
+  color: #e53935;
+}
+
+.fgl-players-panel {
+  margin: 0 14px 12px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.fgl-players-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  padding: 8px;
+  margin-top: 6px;
+  background: #0d0d0d;
+  border: 1px solid #2e2e2e;
+  border-radius: 8px;
+}
+
+.fgl-player-card {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #1c1c1c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .fgl-simple-row {
+    grid-template-columns: 1fr;
+  }
+
+  .fgl-players-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .fgl-grid {
 
   display: grid;
