@@ -708,7 +708,7 @@ async function sendChat() {
   }
 }
 
-async function fglEnsureLink() {
+async function fglEnsureLink(): Promise<void> {
   try {
     const name = (pseudo.value || '').trim()
     await invoke('fgl_link_set_pseudo', { pseudo: name })
@@ -719,34 +719,7 @@ async function fglEnsureLink() {
   } catch { }
 }
 
-function fglSetupLinkListener()
-
-function fglSetupGameBridge() {
-  import('@tauri-apps/api/event').then(({ listen }) => {
-    listen('fgl_from_game', async (ev: any) => {
-      try {
-        const p = ev.payload || {}
-        const raw = (p.raw || '').toString()
-        const gport = Number(p.port || 0)
-        if (gport > 0) {
-          try { await invoke('fgl_ipc_note_game_addr', { port: gport }) } catch { }
-        }
-        if (!raw) return
-        let kind = 'player'
-        let payload = raw
-        if (raw.startsWith('PLAYER|')) {
-          kind = 'player'
-          payload = raw.substring(7)
-        }
-        const ips = [...peerIps.value]
-        if (ips.length === 0) return
-        await invoke('fgl_link_send', { kind, payload, ips })
-      } catch { }
-    })
-  }).catch(() => {})
-}
-fglSetupGameBridge()
- {
+function fglSetupLinkListener(): void {
   import('@tauri-apps/api/event').then(({ listen }) => {
     listen('fgl_link_message', async (ev: any) => {
       try {
@@ -754,17 +727,13 @@ fglSetupGameBridge()
         const ip = (p.ip || '').toString()
         const port = Number(p.reply_port || p.src_port || 0)
         if (ip && port > 0) await invoke('fgl_link_remember', { ip, port })
-        if (p.kind && p.kind !== 'announce') {
+        if (p.kind === 'player' && p.payload) {
+          try { await invoke('fgl_ipc_deliver', { payload: 'PLAYER|' + p.payload, gamePort: null }) } catch { }
+        } else if (p.kind && p.kind !== 'announce') {
           addLog('[link] ' + (p.kind || '') + ' from ' + (p.from || ip || '?'), 'info')
         }
       } catch { }
     })
-  }).catch(() => {})
-}
-fglSetupLinkListener()
-
-function fglSetupGameBridge() {
-  import('@tauri-apps/api/event').then(({ listen }) => {
     listen('fgl_from_game', async (ev: any) => {
       try {
         const p = ev.payload || {}
@@ -777,7 +746,6 @@ function fglSetupGameBridge() {
         let kind = 'player'
         let payload = raw
         if (raw.startsWith('PLAYER|')) {
-          kind = 'player'
           payload = raw.substring(7)
         }
         const ips = [...peerIps.value]
@@ -787,9 +755,7 @@ function fglSetupGameBridge() {
     })
   }).catch(() => {})
 }
-fglSetupGameBridge()
-
-
+fglSetupLinkListener()
 async function refreshPeers() {
 
   if (!clientRunning.value) {
