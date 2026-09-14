@@ -3,6 +3,8 @@
 
 mod elevate;
 mod chat;
+mod fgl_ipc;
+mod fgl_link;
 mod fangame_detect;
 
 use anyhow::Context;
@@ -1321,7 +1323,9 @@ pub fn run_gui() -> std::process::ExitCode {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_vpnservice::init())
-        .manage(chat::ChatState::default());
+        .manage(chat::ChatState::default())
+        .manage(fgl_ipc::IpcState::default())
+        .manage(fgl_link::LinkState::default());
 
     let app = builder
         .setup(|app| {
@@ -1395,6 +1399,15 @@ pub fn run_gui() -> std::process::ExitCode {
             chat::chat_stop,
             chat::chat_send,
             chat::chat_send_cmd,
+            fgl_ipc::fgl_ipc_start,
+            fgl_ipc::fgl_ipc_get_port,
+            fgl_link::fgl_link_start,
+            fgl_link::fgl_link_get_port,
+            fgl_link::fgl_link_set_pseudo,
+            fgl_link::fgl_link_set_peers,
+            fgl_link::fgl_link_remember,
+            fgl_link::fgl_link_announce,
+            fgl_link::fgl_link_send,
             fangame_detect::prepare_scripts_rxdata,
             fangame_detect::verify_fgl_plugins,
             fangame_detect::is_fangame_allowed_lang,

@@ -245,12 +245,17 @@ pub fn get_fangame_fingerprint(path: String) -> Result<FangameFingerprint, Strin
 }
 
 #[tauri::command]
-pub fn launch_fangame(path: String) -> Result<(), String> {
+pub fn launch_fangame(path: String, ipc_port: Option<u16>) -> Result<(), String> {
     let info = detect_fangame(&path);
     let exe = info.game_exe.ok_or_else(|| "Game.exe not found".to_string())?;
-    Command::new(&exe)
-        .current_dir(&info.root)
-        .spawn()
+    let mut cmd = Command::new(&exe);
+    cmd.current_dir(&info.root);
+    if let Some(port) = ipc_port {
+        if port > 0 {
+            cmd.env("FGL_IPC_PORT", port.to_string());
+        }
+    }
+    cmd.spawn()
         .map_err(|e| format!("Failed to launch game: {}", e))?;
     Ok(())
 }

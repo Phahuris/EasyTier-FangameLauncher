@@ -267,6 +267,7 @@ const uiStrings: Record<string, Record<string, string>> = {
     nodeOk: 'Noeud public OK',
     nodeFail: 'Noeud indisponible',
     nodeFallback: 'Noeud de secours',
+    players: 'Joueurs',
   },
   en: {
     title: 'Fangame Launcher',
@@ -304,6 +305,7 @@ const uiStrings: Record<string, Record<string, string>> = {
     nodeOk: 'Public node OK',
     nodeFail: 'Node unavailable',
     nodeFallback: 'Fallback node',
+    players: 'Players',
   },
 }
 
@@ -705,6 +707,34 @@ async function sendChat() {
     addLog('[Chat] ' + String(e), 'warn')
   }
 }
+
+async function fglEnsureLink() {
+  try {
+    const name = (pseudo.value || '').trim()
+    await invoke('fgl_link_set_pseudo', { pseudo: name })
+    await invoke('fgl_link_start')
+    const ips = [...peerIps.value]
+    await invoke('fgl_link_set_peers', { ips })
+    await invoke('fgl_link_announce')
+  } catch { }
+}
+
+function fglSetupLinkListener() {
+  import('@tauri-apps/api/event').then(({ listen }) => {
+    listen('fgl_link_message', async (ev: any) => {
+      try {
+        const p = ev.payload || {}
+        const ip = (p.ip || '').toString()
+        const port = Number(p.reply_port || p.src_port || 0)
+        if (ip && port > 0) await invoke('fgl_link_remember', { ip, port })
+        if (p.kind && p.kind !== 'announce') {
+          addLog('[link] ' + (p.kind || '') + ' from ' + (p.from || ip || '?'), 'info')
+        }
+      } catch { }
+    })
+  }).catch(() => {})
+}
+fglSetupLinkListener()
 async function refreshPeers() {
 
   if (!clientRunning.value) {
@@ -909,7 +939,11 @@ async function launchSelectedFangame() {
 
   try {
 
-    await invoke('launch_fangame', { path })
+    let ipcPort: number | null = null
+    try { ipcPort = await invoke<number>('fgl_ipc_start') } catch {
+      try { ipcPort = await invoke<number>('fgl_ipc_get_port') } catch { ipcPort = null }
+    }
+    await invoke('launch_fangame', { path, ipcPort: ipcPort && ipcPort > 0 ? ipcPort : null })
 
     addLog(uiLang.value === 'fr' ? 'Jeu lance' : 'Game launched', 'ok')
 
@@ -1499,7 +1533,7 @@ async function initWithMode(mode: Mode) {
 
   clientRunning.value = await isClientRunning().catch(() => false)
 
-  addLog(clientRunning.value ? 'EasyTier pret' : 'Backend non disponible (mode navigateur)')
+  addLog(clientRunning.value ? (uiLang.value === 'fr' ? 'EasyTier pret' : 'EasyTier ready') : (uiLang.value === 'fr' ? 'Backend non disponible (mode navigateur)' : 'Backend unavailable (browser mode)'))
 
 }
 
@@ -1593,7 +1627,7 @@ onMounted(async () => {
 
     hostStatus.value = s.value.noParty
 
-  addLog('FangameLauncher demarre')
+  addLog(uiLang.value === 'fr' ? 'Fangame Launcher demarre' : 'Fangame Launcher started')
 
   onUnmounted(() => cleanupFns.forEach(fn => fn()))
 
@@ -2145,7 +2179,7 @@ const configServerConnectionStatus = computed(() => {
 
       <div class="fgl-peers">
 
-        <div class="fgl-label">Joueurs</div>
+        <div class="fgl-label">{{ s.players || (uiLang === 'fr' ? 'Joueurs' : 'Players') }}</div>
 
         <div class="fgl-peerbox">
 
