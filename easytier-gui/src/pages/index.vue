@@ -719,9 +719,7 @@ async function fglEnsureLink() {
   } catch { }
 }
 
-function fglSetupLinkListener()
-// ensure link helper referenced for tsc
-void fglEnsureLink() {
+function fglSetupLinkListener() {
   import('@tauri-apps/api/event').then(({ listen }) => {
     listen('fgl_link_message', async (ev: any) => {
       try {
@@ -737,8 +735,7 @@ void fglEnsureLink() {
   }).catch(() => {})
 }
 fglSetupLinkListener()
-// ensure link helper referenced for tsc
-void fglEnsureLink()
+
 async function refreshPeers() {
 
   if (!clientRunning.value) {
@@ -828,6 +825,7 @@ async function refreshPeers() {
     peerList.value = nameList
 
     peerIps.value = ipList
+    void fglEnsureLink()
 
     if (changed) {
       // peers mis a jour silencieusement
