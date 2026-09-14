@@ -719,7 +719,34 @@ async function fglEnsureLink() {
   } catch { }
 }
 
-function fglSetupLinkListener() {
+function fglSetupLinkListener()
+
+function fglSetupGameBridge() {
+  import('@tauri-apps/api/event').then(({ listen }) => {
+    listen('fgl_from_game', async (ev: any) => {
+      try {
+        const p = ev.payload || {}
+        const raw = (p.raw || '').toString()
+        const gport = Number(p.port || 0)
+        if (gport > 0) {
+          try { await invoke('fgl_ipc_note_game_addr', { port: gport }) } catch { }
+        }
+        if (!raw) return
+        let kind = 'player'
+        let payload = raw
+        if (raw.startsWith('PLAYER|')) {
+          kind = 'player'
+          payload = raw.substring(7)
+        }
+        const ips = [...peerIps.value]
+        if (ips.length === 0) return
+        await invoke('fgl_link_send', { kind, payload, ips })
+      } catch { }
+    })
+  }).catch(() => {})
+}
+fglSetupGameBridge()
+ {
   import('@tauri-apps/api/event').then(({ listen }) => {
     listen('fgl_link_message', async (ev: any) => {
       try {
@@ -735,6 +762,33 @@ function fglSetupLinkListener() {
   }).catch(() => {})
 }
 fglSetupLinkListener()
+
+function fglSetupGameBridge() {
+  import('@tauri-apps/api/event').then(({ listen }) => {
+    listen('fgl_from_game', async (ev: any) => {
+      try {
+        const p = ev.payload || {}
+        const raw = (p.raw || '').toString()
+        const gport = Number(p.port || 0)
+        if (gport > 0) {
+          try { await invoke('fgl_ipc_note_game_addr', { port: gport }) } catch { }
+        }
+        if (!raw) return
+        let kind = 'player'
+        let payload = raw
+        if (raw.startsWith('PLAYER|')) {
+          kind = 'player'
+          payload = raw.substring(7)
+        }
+        const ips = [...peerIps.value]
+        if (ips.length === 0) return
+        await invoke('fgl_link_send', { kind, payload, ips })
+      } catch { }
+    })
+  }).catch(() => {})
+}
+fglSetupGameBridge()
+
 
 async function refreshPeers() {
 

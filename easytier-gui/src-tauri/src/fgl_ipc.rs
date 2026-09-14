@@ -1,14 +1,17 @@
-//! Etape 3 : IPC local jeu <-> CE launcher uniquement.
-//! Bind 127.0.0.1:0 (port libre par instance). Aucun reseau distant ici.
+//! IPC local jeu <-> launcher : 127.0.0.1:port dynamique. Aucun fichier.
 
+use std::collections::VecDeque;
+use std::net::SocketAddr;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
 pub struct IpcState {
     pub socket: Mutex<Option<Arc<UdpSocket>>>,
     pub port: Mutex<u16>,
+    pub game_addr: Mutex<Option<SocketAddr>>,
+    pub inbox: Mutex<VecDeque<String>>,
 }
 
 impl Default for IpcState {
@@ -16,12 +19,14 @@ impl Default for IpcState {
         Self {
             socket: Mutex::new(None),
             port: Mutex::new(0),
+            game_addr: Mutex::new(None),
+            inbox: Mutex::new(VecDeque::new()),
         }
     }
 }
 
 #[tauri::command]
-pub async fn fgl_ipc_start(state: State<'_, IpcState>) -> Result<u16, String> {
+pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result<u16, String> {
     let mut guard = state.socket.lock().await;
     if let Some(sock) = guard.as_ref() {
         let p = sock
@@ -36,7 +41,35 @@ pub async fn fgl_ipc_start(state: State<'_, IpcState>) -> Result<u16, String> {
     let port = sock.local_addr().map_err(|e| e.to_string())?.port();
     println!("[FGL_IPC] 127.0.0.1:{port}");
     *state.port.lock().await = port;
-    *guard = Some(Arc::new(sock));
+    let sock = Arc::new(sock);
+    *guard = Some(sock.clone());
+    drop(guard);
+
+    let app2 = app.clone();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65535];
+        loop {
+            match sock.recv_from(&mut buf).await {
+                Ok((n, from)) => {
+                    if n == 0 {
+                        continue;
+                    }
+                    let Ok(txt) = std::str::from_utf8(&buf[..n]) else {
+                        continue;
+                    };
+                    let _ = app2.emit(
+                        "fgl_from_game",
+                        serde_json::json!({
+                            "raw": txt,
+                            "ip": from.ip().to_string(),
+                            "port": from.port(),
+                        }),
+                    );
+                }
+                Err(_) => break,
+            }
+        }
+    });
     Ok(port)
 }
 
@@ -48,4 +81,72 @@ pub async fn fgl_ipc_get_port(state: State<'_, IpcState>) -> Result<u16, String>
     } else {
         Ok(p)
     }
+}
+
+#[tauri::command]
+pub async fn fgl_ipc_note_game_addr(state: State<'_, IpcState>, port: u16) -> Result<(), String> {
+    if port == 0 {
+        return Ok(());
+    }
+    let addr: SocketAddr = format!("127.0.0.1:{port}")
+        .parse()
+        .map_err(|e: std::net::AddrParseError| e.to_string())?;
+    *state.game_addr.lock().await = Some(addr);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn fgl_ipc_deliver(
+    state: State<'_, IpcState>,
+    payload: String,
+    game_port: Option<u16>,
+) -> Result<(), String> {
+    let sock = {
+        let g = state.socket.lock().await;
+        g.as_ref()
+            .cloned()
+            .ok_or_else(|| "ipc not started".to_string())?
+    };
+    let addr = if let Some(p) = game_port {
+        if p > 0 {
+            format!("127.0.0.1:{p}")
+                .parse()
+                .map_err(|e: std::net::AddrParseError| e.to_string())?
+        } else {
+            state
+                .game_addr
+                .lock()
+                .await
+                .ok_or_else(|| "game addr unknown".to_string())?
+        }
+    } else {
+        state
+            .game_addr
+            .lock()
+            .await
+            .ok_or_else(|| "game addr unknown".to_string())?
+    };
+    sock.send_to(payload.as_bytes(), addr)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn fgl_ipc_push_inbox(state: State<'_, IpcState>, line: String) -> Result<(), String> {
+    state.inbox.lock().await.push_back(line);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn fgl_ipc_poll_inbox(state: State<'_, IpcState>) -> Result<Vec<String>, String> {
+    let mut q = state.inbox.lock().await;
+    let mut out = Vec::new();
+    while let Some(x) = q.pop_front() {
+        out.push(x);
+        if out.len() >= 64 {
+            break;
+        }
+    }
+    Ok(out)
 }

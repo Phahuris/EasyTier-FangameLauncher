@@ -1305,16 +1305,8 @@ pub fn run_gui() -> std::process::ExitCode {
 
     let mut builder = tauri::Builder::default();
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            app.webview_windows()
-                .values()
-                .next()
-                .expect("Sorry, no window found")
-                .set_focus()
-                .expect("Can't Bring Window to Focus");
-        }));
+        // FGL: single-instance DISABLED (multi-launcher allowed)
+    // was: tauri_plugin_single_instance));
     }
 
     builder = builder
@@ -1401,6 +1393,10 @@ pub fn run_gui() -> std::process::ExitCode {
             chat::chat_send_cmd,
             fgl_ipc::fgl_ipc_start,
             fgl_ipc::fgl_ipc_get_port,
+            fgl_ipc::fgl_ipc_note_game_addr,
+            fgl_ipc::fgl_ipc_deliver,
+            fgl_ipc::fgl_ipc_push_inbox,
+            fgl_ipc::fgl_ipc_poll_inbox,
             fgl_link::fgl_link_start,
             fgl_link::fgl_link_get_port,
             fgl_link::fgl_link_set_pseudo,
