@@ -232,15 +232,15 @@ const uiLang = ref(localStorage.getItem('lang') || 'fr')
 
 const uiStrings: Record<string, Record<string, string>> = {
   fr: {
-    title: 'FangameLauncher',
-    pseudo: 'Ton pseudo',
-    create: 'Cr\u00e9er une partie',
-    join: 'Rejoindre une partie',
-    netName: 'Nom du r\u00e9seau',
-    netSecret: 'Mot de passe r\u00e9seau (secret)',
+    title: 'Fangame Launcher',
+    pseudo: 'Pseudo',
+    create: 'Cr\u00e9er',
+    join: 'Rejoindre',
+    netName: 'Nom de la salle',
+    netSecret: 'Mot de passe',
     peerUrl: 'Adresse du serveur (peer)',
     peerPh: 'ex: tcp://IP:11010',
-    startHost: 'D\u00e9marrer la partie',
+    startHost: 'HOST',
     stopHost: 'Arr\u00eater',
     doJoin: 'Rejoindre',
     language: 'Langue',
@@ -258,8 +258,8 @@ const uiStrings: Record<string, Record<string, string>> = {
     publicNode: 'Noeud public',
     fangame: 'Fangame',
     fangamePh: 'Selectionne un fangame',
-    partyCode: 'Code de partie',
-    partyCodePh: 'colle le code : nom|mdp|noeud',
+    partyCode: 'Code de connexion',
+    partyCodePh: 'nom|mdp|adresse serveur',
     connected: 'Connecte au reseau',
     playerJoined: ' a rejoint la partie',
     hostStopped: 'Partie arretee.',
@@ -269,15 +269,15 @@ const uiStrings: Record<string, Record<string, string>> = {
     nodeFallback: 'Noeud de secours',
   },
   en: {
-    title: 'FangameLauncher',
+    title: 'Fangame Launcher',
     pseudo: 'Nickname',
-    create: 'Create party',
-    join: 'Join party',
-    netName: 'Network name',
-    netSecret: 'Network password (secret)',
+    create: 'Create',
+    join: 'Join',
+    netName: 'Room name',
+    netSecret: 'Password',
     peerUrl: 'Server address (peer)',
     peerPh: 'e.g. tcp://IP:11010',
-    startHost: 'Start party',
+    startHost: 'HOST',
     stopHost: 'Stop',
     doJoin: 'Join',
     language: 'Language',
@@ -295,8 +295,8 @@ const uiStrings: Record<string, Record<string, string>> = {
     publicNode: 'Public node',
     fangame: 'Fangame',
     fangamePh: 'Select a fangame',
-    partyCode: 'Party code',
-    partyCodePh: 'paste code: name|password|node',
+    partyCode: 'Connection code',
+    partyCodePh: 'name|password|server address',
     connected: 'Connected to network',
     playerJoined: ' joined the party',
     hostStopped: 'Party stopped.',
@@ -318,7 +318,7 @@ async function setLanguage(lang: string) {
 
   try { await I18nUtils.loadLanguageAsync('en') } catch (e) { console.error(e) }
 
-  addLog(lang === 'fr' ? 'Langue : Fran├ºais' : 'Language : English')
+  addLog(lang === 'fr' ? 'Langue : Francais' : 'Language : English')
 
 }
 
@@ -1899,7 +1899,7 @@ const configServerConnectionStatus = computed(() => {
 
         <select class="fgl-select" :value="uiLang" @change="setLanguage(($event.target as HTMLSelectElement).value)">
 
-          <option value="fr">Fran├ºais</option>
+          <option value="fr">Francais</option>
 
           <option value="en">English</option>
 
@@ -1967,7 +1967,7 @@ const configServerConnectionStatus = computed(() => {
 
             <label class="fgl-label">&nbsp;</label>
 
-            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
+            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameAllowed ? (uiLang === 'fr' ? 'disponible dans la base du launcher' : 'available in launcher database') : (uiLang === 'fr' ? 'non disponible dans la base du launcher' : 'not available in launcher database') }} — {{ fangameDisplayName || fangameTitle }}</span></div>
 
           </div>
 
@@ -2051,7 +2051,7 @@ const configServerConnectionStatus = computed(() => {
 
             <label class="fgl-label">&nbsp;</label>
 
-            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
+            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameAllowed ? (uiLang === 'fr' ? 'disponible dans la base du launcher' : 'available in launcher database') : (uiLang === 'fr' ? 'non disponible dans la base du launcher' : 'not available in launcher database') }} — {{ fangameDisplayName || fangameTitle }}</span></div>
 
           </div>
 
