@@ -719,7 +719,9 @@ async function fglEnsureLink() {
   } catch { }
 }
 
-function fglSetupLinkListener() {
+function fglSetupLinkListener()
+// ensure link helper referenced for tsc
+void fglEnsureLink() {
   import('@tauri-apps/api/event').then(({ listen }) => {
     listen('fgl_link_message', async (ev: any) => {
       try {
@@ -735,6 +737,8 @@ function fglSetupLinkListener() {
   }).catch(() => {})
 }
 fglSetupLinkListener()
+// ensure link helper referenced for tsc
+void fglEnsureLink()
 async function refreshPeers() {
 
   if (!clientRunning.value) {
