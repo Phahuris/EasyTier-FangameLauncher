@@ -30,8 +30,8 @@
                 "windows":  [
                                 {
                                     "title":  "FangameLauncher",
-                                    "width":  960,
-                                    "height":  780,
+                                    "width":  600,
+                                    "height":  580,
                                     "theme":  "Dark"
                                 }
                             ],

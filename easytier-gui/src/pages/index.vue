@@ -2046,7 +2046,7 @@ const configServerConnectionStatus = computed(() => {
 
             <label class="fgl-label">&nbsp;</label>
 
-            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
+            <div v-if="fangameTitle" class="fgl-fangame-title" :class="{ ok: fangameAllowed, bad: !!fangamePath && !fangameAllowed }"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
 
           </div>
 
@@ -2130,7 +2130,7 @@ const configServerConnectionStatus = computed(() => {
 
             <label class="fgl-label">&nbsp;</label>
 
-            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
+            <div v-if="fangameTitle" class="fgl-fangame-title" :class="{ ok: fangameAllowed, bad: !!fangamePath && !fangameAllowed }"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
 
           </div>
 
@@ -2218,44 +2218,15 @@ const configServerConnectionStatus = computed(() => {
 
     </div>
 
-    <!-- JOUEURS + LOGS -->
-
+    <!-- JOUEURS (pas de chat UI) -->
     <div class="fgl-bottom">
-
-      <div class="fgl-peers">
-
+      <div class="fgl-peers fgl-peers-full">
         <div class="fgl-label">{{ s.players || (uiLang === 'fr' ? 'Joueurs' : 'Players') }}</div>
-
         <div class="fgl-peerbox">
-
           <div v-if="peerList.length === 0" class="fgl-peer-empty">-</div>
-
           <div v-for="(name, i) in peerList" :key="i" class="fgl-peer">{{ name }}</div>
-
         </div>
-
       </div>
-
-      <div class="fgl-logs-wrap">
-
-        <div class="fgl-label">{{ s.logsChat }}</div>
-
-        <div id="fgl-logbox" class="fgl-logbox">
-
-          <div v-for="(line, i) in logLines" :key="i" class="fgl-logline" :class="'fgl-log-' + (line.kind || 'info')"><span class="fgl-log-ts">[{{ line.ts }}]</span> {{ line.text }}</div>
-
-        </div>
-
-        <div class="fgl-chatrow">
-
-          <input class="fgl-input flex1" v-model="chatInput" @keyup.enter="sendChat" type="text" placeholder="..." />
-
-          <button type="button" class="fgl-btn" @click="sendChat">{{ s.send }}</button>          <button type="button" class="fgl-btn fgl-copy-logs" @click="copyLogsChat">Copier Logs / Chat</button>
-
-        </div>
-
-      </div>
-
     </div>
 
   </div>
@@ -2850,4 +2821,27 @@ const configServerConnectionStatus = computed(() => {
 
 }
 
+
+/* UI 600x580 centree, sans chat */
+.fgl-root { max-width: 600px; margin: 0 auto; }
+.fgl-panel { padding: 16px 20px 10px; }
+.fgl-card { max-width: 560px; margin: 0 auto; }
+.fgl-grid-create, .fgl-grid-join {
+  grid-template-columns: 1fr 1fr !important;
+  max-width: 520px; margin: 0 auto;
+}
+.fgl-grid-join .fgl-field-pseudo { grid-column: 1 !important; }
+.fgl-grid-join .fgl-field-code { grid-column: 1 / -1 !important; }
+.fgl-grid-create .fgl-field-half, .fgl-grid-join .fgl-field-half { grid-column: 1 / -1 !important; }
+.fgl-actions { justify-content: center; max-width: 520px; margin: 12px auto 0; }
+.fgl-bottom {
+  flex-direction: column; padding: 8px 20px 14px;
+  max-width: 600px; margin: 0 auto; width: 100%; box-sizing: border-box;
+}
+.fgl-peers-full, .fgl-peers { width: 100% !important; max-width: 560px; margin: 0 auto; }
+.fgl-logs-wrap, .fgl-chatrow, .fgl-logbox { display: none !important; }
+.fgl-fangame-title.ok { color: #69f0ae !important; }
+.fgl-fangame-title.bad { color: #ef5350 !important; }
+.fgl-chrome-tab { min-width: 100px; max-width: 160px; }
+.fgl-adv { display: none !important; }
 </style>
