@@ -1389,6 +1389,7 @@ pub fn run_gui() -> std::process::ExitCode {
             chat::chat_stop,
             chat::chat_send,
             chat::chat_send_cmd,
+            chat::chat_remember_endpoint,
             fgl_ipc::fgl_ipc_start,
             fgl_ipc::fgl_ipc_get_port,
             fgl_ipc::fgl_ipc_note_game_addr,

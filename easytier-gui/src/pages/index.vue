@@ -719,7 +719,22 @@ async function fglEnsureLink(): Promise<void> {
   } catch { }
 }
 
-function fglSetupLinkListener(): void {
+function fglSetupLinkListener()
+
+function fglSetupChatEndpointListener() {
+  import('@tauri-apps/api/event').then(({ listen }) => {
+    listen('chat_endpoint', async (ev: any) => {
+      try {
+        const p = ev.payload || {}
+        const ip = (p.ip || '').toString()
+        const port = Number(p.port || 0)
+        if (ip && port > 0) await invoke('chat_remember_endpoint', { ip, port })
+      } catch { }
+    })
+  }).catch(() => {})
+}
+fglSetupChatEndpointListener()
+: void {
   import('@tauri-apps/api/event').then(({ listen }) => {
     listen('fgl_link_message', async (ev: any) => {
       try {
@@ -756,6 +771,21 @@ function fglSetupLinkListener(): void {
   }).catch(() => {})
 }
 fglSetupLinkListener()
+
+function fglSetupChatEndpointListener() {
+  import('@tauri-apps/api/event').then(({ listen }) => {
+    listen('chat_endpoint', async (ev: any) => {
+      try {
+        const p = ev.payload || {}
+        const ip = (p.ip || '').toString()
+        const port = Number(p.port || 0)
+        if (ip && port > 0) await invoke('chat_remember_endpoint', { ip, port })
+      } catch { }
+    })
+  }).catch(() => {})
+}
+fglSetupChatEndpointListener()
+
 async function refreshPeers() {
 
   if (!clientRunning.value) {
@@ -2023,7 +2053,7 @@ const configServerConnectionStatus = computed(() => {
 
             <label class="fgl-label">&nbsp;</label>
 
-            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameAllowed ? (uiLang === 'fr' ? 'disponible dans la base du launcher' : 'available in launcher database') : (uiLang === 'fr' ? 'non disponible dans la base du launcher' : 'not available in launcher database') }} — {{ fangameDisplayName || fangameTitle }}</span></div>
+            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
 
           </div>
 
@@ -2107,7 +2137,7 @@ const configServerConnectionStatus = computed(() => {
 
             <label class="fgl-label">&nbsp;</label>
 
-            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameAllowed ? (uiLang === 'fr' ? 'disponible dans la base du launcher' : 'available in launcher database') : (uiLang === 'fr' ? 'non disponible dans la base du launcher' : 'not available in launcher database') }} — {{ fangameDisplayName || fangameTitle }}</span></div>
+            <div v-if="fangameTitle" class="fgl-fangame-title"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
 
           </div>
 
