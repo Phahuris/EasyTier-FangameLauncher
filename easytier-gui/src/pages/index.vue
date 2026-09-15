@@ -719,22 +719,7 @@ async function fglEnsureLink(): Promise<void> {
   } catch { }
 }
 
-function fglSetupLinkListener()
-
-function fglSetupChatEndpointListener() {
-  import('@tauri-apps/api/event').then(({ listen }) => {
-    listen('chat_endpoint', async (ev: any) => {
-      try {
-        const p = ev.payload || {}
-        const ip = (p.ip || '').toString()
-        const port = Number(p.port || 0)
-        if (ip && port > 0) await invoke('chat_remember_endpoint', { ip, port })
-      } catch { }
-    })
-  }).catch(() => {})
-}
-fglSetupChatEndpointListener()
-: void {
+function fglSetupLinkListener(): void {
   import('@tauri-apps/api/event').then(({ listen }) => {
     listen('fgl_link_message', async (ev: any) => {
       try {
@@ -760,20 +745,12 @@ fglSetupChatEndpointListener()
         if (!raw) return
         let kind = 'player'
         let payload = raw
-        if (raw.startsWith('PLAYER|')) {
-          payload = raw.substring(7)
-        }
+        if (raw.startsWith('PLAYER|')) payload = raw.substring(7)
         const ips = [...peerIps.value]
         if (ips.length === 0) return
         await invoke('fgl_link_send', { kind, payload, ips })
       } catch { }
     })
-  }).catch(() => {})
-}
-fglSetupLinkListener()
-
-function fglSetupChatEndpointListener() {
-  import('@tauri-apps/api/event').then(({ listen }) => {
     listen('chat_endpoint', async (ev: any) => {
       try {
         const p = ev.payload || {}
@@ -784,8 +761,7 @@ function fglSetupChatEndpointListener() {
     })
   }).catch(() => {})
 }
-fglSetupChatEndpointListener()
-
+fglSetupLinkListener()
 async function refreshPeers() {
 
   if (!clientRunning.value) {
