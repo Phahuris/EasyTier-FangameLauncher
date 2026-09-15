@@ -1,8 +1,5 @@
-//! Etape 4 : transport generique Launcher <-> Launcher sur le reseau EasyTier.
-//! - bind 0.0.0.0:0 (port data dynamique)
-//! - peers = IP virtuelles EasyTier (fournies par le GUI)
-//! - chaque paquet porte reply_port pour apprendre l endpoint distant
-//! PAS de gameplay, PAS de FGL_Net, PAS de modification du chat.
+//! Etape 4 : transport Launcher <-> Launcher (UDP EasyTier).
+//! Data: 0.0.0.0:0 + reply_port. Bootstrap: discovery_port si endpoint inconnu.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -36,18 +33,10 @@ pub struct LinkPacket {
     pub ts: u64,
 }
 
-#[derive(Clone, Debug)]
-struct Endpoint {
-    ip: IpAddr,
-    port: u16,
-}
-
 pub struct LinkState {
     pub sock: Mutex<Option<Arc<UdpSocket>>>,
     pub port: Mutex<u16>,
-    /// IP EasyTier des peers (sans port)
     pub peer_ips: Mutex<Vec<IpAddr>>,
-    /// ip -> dernier port data connu
     pub endpoints: Mutex<HashMap<IpAddr, u16>>,
     pub my_pseudo: Mutex<String>,
 }
@@ -100,7 +89,6 @@ pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Resu
     drop(guard);
 
     let app2 = app.clone();
-    // Note: endpoints updates via fgl_link_on_packet side — reader emits only
     tokio::spawn(async move {
         let mut buf = vec![0u8; 65535];
         loop {
@@ -146,14 +134,19 @@ pub async fn fgl_link_get_port(state: State<'_, LinkState>) -> Result<u16, Strin
 }
 
 #[tauri::command]
-pub async fn fgl_link_set_pseudo(state: State<'_, LinkState>, pseudo: String) -> Result<(), String> {
+pub async fn fgl_link_set_pseudo(
+    state: State<'_, LinkState>,
+    pseudo: String,
+) -> Result<(), String> {
     *state.my_pseudo.lock().await = pseudo.trim().to_string();
     Ok(())
 }
 
-/// IPs EasyTier des autres joueurs (deja connues via le GUI / collect_network_info).
 #[tauri::command]
-pub async fn fgl_link_set_peers(state: State<'_, LinkState>, ips: Vec<String>) -> Result<(), String> {
+pub async fn fgl_link_set_peers(
+    state: State<'_, LinkState>,
+    ips: Vec<String>,
+) -> Result<(), String> {
     let mut list = Vec::new();
     for s in ips {
         if let Some(ip) = parse_ip(&s) {
@@ -164,7 +157,6 @@ pub async fn fgl_link_set_peers(state: State<'_, LinkState>, ips: Vec<String>) -
     Ok(())
 }
 
-/// Enregistre le port data d un peer (apres reception ou annonce).
 #[tauri::command]
 pub async fn fgl_link_remember(
     state: State<'_, LinkState>,
@@ -181,9 +173,6 @@ pub async fn fgl_link_remember(
     Ok(())
 }
 
-/// Annonce periodique : envoie kind=announce avec reply_port vers chaque peer
-/// sur le port deja connu (si connu). Le premier contact peut venir de l autre
-/// cote qui connait deja notre port, ou d un echange ulterieur.
 #[tauri::command]
 pub async fn fgl_link_announce(state: State<'_, LinkState>) -> Result<(), String> {
     let my_port = *state.port.lock().await;
@@ -209,19 +198,17 @@ pub async fn fgl_link_announce(state: State<'_, LinkState>) -> Result<(), String
     let data = serde_json::to_vec(&pkt).map_err(|e| e.to_string())?;
     let peers = state.peer_ips.lock().await.clone();
     let eps = state.endpoints.lock().await.clone();
+    let dport = discovery_port("fangame");
     for ip in peers {
         if let Some(&port) = eps.get(&ip) {
             let _ = sock.send_to(&data, SocketAddr::new(ip, port)).await;
         } else {
-            let dport = discovery_port("fangame");
             let _ = sock.send_to(&data, SocketAddr::new(ip, dport)).await;
         }
-    }
     }
     Ok(())
 }
 
-/// Envoi generique d information Launcher -> Launcher (etape 4).
 #[tauri::command]
 pub async fn fgl_link_send(
     state: State<'_, LinkState>,
@@ -251,12 +238,15 @@ pub async fn fgl_link_send(
     };
     let data = serde_json::to_vec(&pkt).map_err(|e| e.to_string())?;
     let eps = state.endpoints.lock().await.clone();
+    let dport = discovery_port("fangame");
     let mut sent = 0u32;
     for s in ips {
-        let Some(ip) = parse_ip(&s) else { continue };
+        let Some(ip) = parse_ip(&s) else {
+            continue;
+        };
         let port = match eps.get(&ip) {
             Some(&p) if p > 0 => p,
-            _ => continue, // pas d endpoint connu: pas d envoi fantome
+            _ => dport,
         };
         if sock.send_to(&data, SocketAddr::new(ip, port)).await.is_ok() {
             sent += 1;
