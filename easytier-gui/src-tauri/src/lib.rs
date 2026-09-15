@@ -1627,4 +1627,3 @@ pub fn run_cli() -> std::process::ExitCode {
         .unwrap()
         .block_on(async { easytier::core::main().await })
 }
-
