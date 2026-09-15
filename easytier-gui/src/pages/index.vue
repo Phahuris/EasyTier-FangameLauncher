@@ -708,6 +708,7 @@ async function sendChat() {
   }
 }
 
+
 async function fglEnsureLink(): Promise<void> {
   try {
     const name = (pseudo.value || '').trim()
@@ -745,12 +746,20 @@ function fglSetupLinkListener(): void {
         if (!raw) return
         let kind = 'player'
         let payload = raw
-        if (raw.startsWith('PLAYER|')) payload = raw.substring(7)
+        if (raw.startsWith('PLAYER|')) {
+          payload = raw.substring(7)
+        }
         const ips = [...peerIps.value]
         if (ips.length === 0) return
         await invoke('fgl_link_send', { kind, payload, ips })
       } catch { }
     })
+  }).catch(() => {})
+}
+fglSetupLinkListener()
+
+function fglSetupChatEndpointListener(): void {
+  import('@tauri-apps/api/event').then(({ listen }) => {
     listen('chat_endpoint', async (ev: any) => {
       try {
         const p = ev.payload || {}
@@ -761,8 +770,10 @@ function fglSetupLinkListener(): void {
     })
   }).catch(() => {})
 }
-fglSetupLinkListener()
+fglSetupChatEndpointListener()
+
 async function refreshPeers() {
+
 
   if (!clientRunning.value) {
 
