@@ -851,6 +851,12 @@ async function refreshPeers() {
     peerList.value = nameList
 
     peerIps.value = ipList
+    try {
+      const netName = (hostNetworkName?.value || joinNetworkName?.value || 'fangame').toString()
+      await invoke('chat_set_network_name', { name: netName })
+      await invoke('chat_start')
+      await invoke('chat_bootstrap', { peers: [...ipList] })
+    } catch { }
     void fglEnsureLink()
 
     if (changed) {

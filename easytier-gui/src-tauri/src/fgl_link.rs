@@ -12,6 +12,15 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
+fn discovery_port(network: &str) -> u16 {
+    let mut h: u32 = 2166136261;
+    for b in network.as_bytes() {
+        h ^= *b as u32;
+        h = h.wrapping_mul(16777619);
+    }
+    40000 + (h % 20000) as u16
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct LinkPacket {
     pub v: u32,
@@ -201,11 +210,13 @@ pub async fn fgl_link_announce(state: State<'_, LinkState>) -> Result<(), String
     let peers = state.peer_ips.lock().await.clone();
     let eps = state.endpoints.lock().await.clone();
     for ip in peers {
-        // Si on connait le port: envoyer dessus. Sinon essayer le port source
-        // n est pas connu: on ne spam pas de ports fixes (pas 37777).
         if let Some(&port) = eps.get(&ip) {
             let _ = sock.send_to(&data, SocketAddr::new(ip, port)).await;
+        } else {
+            let dport = discovery_port("fangame");
+            let _ = sock.send_to(&data, SocketAddr::new(ip, dport)).await;
         }
+    }
     }
     Ok(())
 }
