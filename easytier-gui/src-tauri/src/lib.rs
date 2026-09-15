@@ -1305,9 +1305,7 @@ pub fn run_gui() -> std::process::ExitCode {
 
     let mut builder = tauri::Builder::default();
 
-        // FGL: single-instance DISABLED (multi-launcher allowed)
-    // was: tauri_plugin_single_instance));
-    }
+    // FGL: single-instance DISABLED — multi-launcher allowed
 
     builder = builder
         .plugin(tauri_plugin_os::init())
