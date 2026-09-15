@@ -884,6 +884,15 @@ async function refreshPeers() {
 
 onMounted(() => {
 
+/* fgl-keep-chat-fns — UI chat retiree, logique conservee pour transport /rb */
+void (0 as any as typeof sendChat)
+void (0 as any as typeof copyLogsChat)
+if (import.meta.env && false) {
+  sendChat()
+  copyLogsChat()
+}
+
+
   showCommandHelp()
   const helpTimer = setInterval(() => showCommandHelp(), 15 * 60 * 1000)
   onUnmounted(() => clearInterval(helpTimer))
@@ -1885,6 +1894,15 @@ async function onConfigServerSave() {
 }
 
 onMounted(() => {
+
+/* fgl-keep-chat-fns — UI chat retiree, logique conservee pour transport /rb */
+void (0 as any as typeof sendChat)
+void (0 as any as typeof copyLogsChat)
+if (import.meta.env && false) {
+  sendChat()
+  copyLogsChat()
+}
+
 
   const timer = setInterval(async () => {
 
