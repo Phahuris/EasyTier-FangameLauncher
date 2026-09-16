@@ -494,8 +494,7 @@ module FGLTrade
       rescue; end
     end
   end
-
-  def self.install!
+def self.install!
     return if @hooks
     @hooks = true
   end
