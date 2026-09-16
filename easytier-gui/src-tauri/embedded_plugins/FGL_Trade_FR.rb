@@ -27,34 +27,74 @@ module FGLTrade
   end
 
   def self.ensure_dir
-    Dir.mkdir(DIR) unless File.directory?(DIR) rescue nil
+    # no-op: transport via FGL_IPC si dispo, sinon fichiers optionnels
+    begin
+      if DIR && DIR.to_s != ""
+        Dir.mkdir(DIR) unless File.directory?(DIR)
+      end
+    rescue
+    end
   end
 
-  def self.write_text(name, text)
-    ensure_dir
-    File.open(File.join(DIR, name), "w") { |f| f.write(text.to_s) } rescue nil
+  def self.write_file(name, text)
+    begin
+      if defined?(FGL_IPC) && FGL_IPC.respond_to?(:send_xfer)
+        FGL_IPC.send_xfer(name.to_s, text.to_s)
+      end
+    rescue
+    end
+    begin
+      ensure_dir
+      if DIR && DIR.to_s != ""
+        File.open(File.join(DIR, name), "wb") { |f| f.write(text.to_s) }
+      end
+    rescue
+    end
   end
 
-  def self.read_text(name)
-    path = File.join(DIR, name)
-    return nil unless File.exist?(path)
-    File.read(path) rescue nil
+  def self.write_bin(name, data)
+    begin
+      ensure_dir
+      if DIR && DIR.to_s != ""
+        File.open(File.join(DIR, name), "wb") { |f| f.write(data) }
+      end
+    rescue
+    end
   end
 
-  def self.write_bin(name, obj)
-    ensure_dir
-    File.open(File.join(DIR, name), "wb") { |f| Marshal.dump(obj, f) } rescue nil
-  end
-
-  def self.read_bin(name)
-    path = File.join(DIR, name)
-    return nil unless File.exist?(path)
-    File.open(path, "rb") { |f| Marshal.load(f) } rescue nil
+  def self.read_file(name)
+    begin
+      if defined?(FGL_IPC) && FGL_IPC.respond_to?(:poll)
+        FGL_IPC.poll.each do |raw|
+          s = raw.to_s
+          next unless s.index("XFER|") == 0
+          rest = s[5, s.length - 5]
+          i = rest.index("|")
+          next unless i
+          fn = rest[0, i]
+          body = rest[i + 1, rest.length - i - 1]
+          return body if fn.to_s == name.to_s
+        end
+      end
+    rescue
+    end
+    begin
+      return nil if !DIR || DIR.to_s == ""
+      p = File.join(DIR, name)
+      return nil unless File.exist?(p)
+      return File.open(p, "rb") { |f| f.read }
+    rescue
+      return nil
+    end
   end
 
   def self.delete_file(name)
-    path = File.join(DIR, name)
-    File.delete(path) if File.exist?(path) rescue nil
+    begin
+      return if !DIR || DIR.to_s == ""
+      p = File.join(DIR, name)
+      File.delete(p) if File.exist?(p)
+    rescue
+    end
   end
 
   def self.force_msg_bottom_system!

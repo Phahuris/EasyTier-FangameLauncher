@@ -47,28 +47,75 @@ module FGLBattle
   end
 
   def self.ensure_dir
-    begin; Dir.mkdir(DIR) unless File.directory?(DIR); rescue; end
+    # no-op: transport via FGL_IPC si dispo, sinon fichiers optionnels
+    begin
+      if DIR && DIR.to_s != ""
+        Dir.mkdir(DIR) unless File.directory?(DIR)
+      end
+    rescue
+    end
   end
 
   def self.write_file(name, text)
-    ensure_dir
-    begin; File.open(File.join(DIR, name), "wb") { |f| f.write(text.to_s) }; rescue; end
+    begin
+      if defined?(FGL_IPC) && FGL_IPC.respond_to?(:send_xfer)
+        FGL_IPC.send_xfer(name.to_s, text.to_s)
+      end
+    rescue
+    end
+    begin
+      ensure_dir
+      if DIR && DIR.to_s != ""
+        File.open(File.join(DIR, name), "wb") { |f| f.write(text.to_s) }
+      end
+    rescue
+    end
   end
 
   def self.write_bin(name, data)
-    ensure_dir
-    begin; File.open(File.join(DIR, name), "wb") { |f| f.write(data) }; rescue; end
+    begin
+      ensure_dir
+      if DIR && DIR.to_s != ""
+        File.open(File.join(DIR, name), "wb") { |f| f.write(data) }
+      end
+    rescue
+    end
   end
 
   def self.read_file(name)
-    p = File.join(DIR, name)
-    return nil unless File.exist?(p)
-    begin; return File.open(p, "rb") { |f| f.read }; rescue; return nil; end
+    begin
+      if defined?(FGL_IPC) && FGL_IPC.respond_to?(:poll)
+        FGL_IPC.poll.each do |raw|
+          s = raw.to_s
+          next unless s.index("XFER|") == 0
+          rest = s[5, s.length - 5]
+          i = rest.index("|")
+          next unless i
+          fn = rest[0, i]
+          body = rest[i + 1, rest.length - i - 1]
+          return body if fn.to_s == name.to_s
+        end
+      end
+    rescue
+    end
+    begin
+      return nil if !DIR || DIR.to_s == ""
+      p = File.join(DIR, name)
+      return nil unless File.exist?(p)
+      return File.open(p, "rb") { |f| f.read }
+    rescue
+      return nil
+    end
   end
 
   def self.delete_file(name)
-    p = File.join(DIR, name)
-    begin; File.delete(p) if File.exist?(p); rescue; end
+    begin
+      return if !DIR || DIR.to_s == ""
+      p = File.join(DIR, name)
+      File.delete(p) if File.exist?(p)
+    rescue
+    end
+  end
   end
 
   def self.snapshot_items

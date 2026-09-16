@@ -1928,6 +1928,8 @@ const configServerConnectionStatus = computed(() => {
 
 })
 
+const __fglKeepChatFns = { sendChat, copyLogsChat }
+void __fglKeepChatFns
 </script>
 
 <template>
@@ -2010,75 +2012,42 @@ const configServerConnectionStatus = computed(() => {
 
     <div v-show="activeTab === 'create'" class="fgl-panel">
 
-      <div v-if="!isNetworkActive" class="fgl-card">
+      <div v-if="!isNetworkActive" class="fgl-card fgl-card-fixed">
 
-        <div class="fgl-grid fgl-grid-create">
-
+        <div class="fgl-form">
           <div class="fgl-field">
-
             <label class="fgl-label">{{ s.pseudo }}</label>
-
             <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
-
           </div>
-
-          <div class="fgl-field">
-
-            <label class="fgl-label">{{ s.netName }}</label>
-
-            <input class="fgl-input" v-model="hostNetworkName" type="text" />
-
-          </div>
-
-          <div class="fgl-field">
-
-            <label class="fgl-label">{{ s.netSecret }}</label>
-
-            <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
-
-          </div>
-
-          <div class="fgl-field">
-
-            <label class="fgl-label">{{ s.publicNode || 'Public node' }}</label>
-
-            <input class="fgl-input" v-model="publicNodeUrl" type="text" placeholder="tcp://easytier-us.slarker.me:11010" />
-
-          </div>
-
-          <div class="fgl-field fgl-field-half">
-
-            <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
-
-            <div class="fgl-fangame-row">
-
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh || 'Game.exe'" />
-
-              <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
-
+          <div class="fgl-row2">
+            <div class="fgl-field">
+              <label class="fgl-label">{{ s.netName }}</label>
+              <input class="fgl-input" v-model="hostNetworkName" type="text" />
             </div>
-
+            <div class="fgl-field">
+              <label class="fgl-label">{{ s.netSecret }}</label>
+              <input class="fgl-input" v-model="hostNetworkSecret" type="password" />
+            </div>
           </div>
-
-          <div class="fgl-field fgl-field-half">
-
-            <label class="fgl-label">&nbsp;</label>
-
-            <div v-if="fangameTitle" class="fgl-fangame-title" :class="{ ok: fangameAllowed, bad: !!fangamePath && !fangameAllowed }"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
-
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
+            <div class="fgl-fangame-row">
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh || 'Select a fangame'" />
+              <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
+            </div>
           </div>
-
-        </div>
-
-        <div class="fgl-actions">
-
-          <button type="button" class="fgl-btn green" :disabled="isBusy || !canStartParty" @click="startHost">{{ s.startHost }}</button>
-
+          <div class="fgl-host-line">
+            <div class="fgl-fangame-status">
+              <span v-if="fangamePath && (fangameDisplayName || fangameTitle)" :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span>
+              <span v-else-if="fangamePath && !fangameAllowed" class="fangame-bad">{{ uiLang === 'fr' ? 'Fangame non pris en charge' : 'Fangame not supported' }}</span>
+            </div>
+            <button type="button" class="fgl-btn green" :disabled="isBusy || !canStartParty" @click="startHost">{{ s.startHost }}</button>
+          </div>
         </div>
 
       </div>
 
-      <div v-else class="fgl-card fgl-card-running">
+      <div v-else class="fgl-card fgl-card-running fgl-card-fixed">
 
         <div class="fgl-running-line"><span>Reseau</span><strong>{{ hostNetworkName }}</strong></div>
 
@@ -2110,59 +2079,36 @@ const configServerConnectionStatus = computed(() => {
 
     <div v-show="activeTab === 'join'" class="fgl-panel">
 
-      <div v-if="!isNetworkActive" class="fgl-card">
+      <div v-if="!isNetworkActive" class="fgl-card fgl-card-fixed">
 
-        <div class="fgl-grid fgl-grid-join">
-
-          <div class="fgl-field fgl-field-pseudo">
-
+        <div class="fgl-form">
+          <div class="fgl-field">
             <label class="fgl-label">{{ s.pseudo }}</label>
-
             <input class="fgl-input" v-model="pseudo" type="text" maxlength="32" placeholder="Pseudo..." />
-
           </div>
-
-          <div class="fgl-field fgl-field-code">
-
-            <label class="fgl-label">{{ s.partyCode || 'Party code' }}</label>
-
-            <input class="fgl-input" v-model="joinCode" type="text" :placeholder="s.partyCodePh || 'name|password|node'" />
-
+          <div class="fgl-field">
+            <label class="fgl-label">{{ s.partyCode || 'Connection code' }}</label>
+            <input class="fgl-input" v-model="joinCode" type="text" :placeholder="s.partyCodePh || 'name|password|server address'" />
           </div>
-
-          <div class="fgl-field fgl-field-half">
-
+          <div class="fgl-field">
             <label class="fgl-label">{{ s.fangame || 'Fangame' }}</label>
-
             <div class="fgl-fangame-row">
-
-              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh || 'Game.exe'" />
-
+              <input class="fgl-input" v-model="fangamePath" type="text" :placeholder="s.fangamePh || 'Select a fangame'" />
               <button type="button" class="fgl-btn" @click="browseFangame" title="Browse">...</button>
-
             </div>
-
           </div>
-
-          <div class="fgl-field fgl-field-half">
-
-            <label class="fgl-label">&nbsp;</label>
-
-            <div v-if="fangameTitle" class="fgl-fangame-title" :class="{ ok: fangameAllowed, bad: !!fangamePath && !fangameAllowed }"><span :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span></div>
-
+          <div class="fgl-host-line">
+            <div class="fgl-fangame-status">
+              <span v-if="fangamePath && (fangameDisplayName || fangameTitle)" :class="fangameAllowed ? 'fangame-ok' : 'fangame-bad'">{{ fangameDisplayName || fangameTitle }}</span>
+              <span v-else-if="fangamePath && !fangameAllowed" class="fangame-bad">{{ uiLang === 'fr' ? 'Fangame non pris en charge' : 'Fangame not supported' }}</span>
+            </div>
+            <button type="button" class="fgl-btn blue" :disabled="isBusy || !canStartParty" @click="startJoin">{{ s.doJoin }}</button>
           </div>
-
-        </div>
-
-        <div class="fgl-actions">
-
-          <button type="button" class="fgl-btn blue" :disabled="isBusy || !canStartParty" @click="startJoin">{{ s.doJoin }}</button>
-
         </div>
 
       </div>
 
-      <div v-else class="fgl-card fgl-card-running">
+      <div v-else class="fgl-card fgl-card-running fgl-card-fixed">
 
         <div class="fgl-running-line"><span>Reseau</span><strong>{{ joinNetworkName }}</strong></div>
 
@@ -2236,18 +2182,18 @@ const configServerConnectionStatus = computed(() => {
 
     </div>
 
-    <!-- JOUEURS (pas de chat UI) -->
     <div class="fgl-bottom">
       <div class="fgl-peers fgl-peers-full">
         <div class="fgl-label">{{ s.players || (uiLang === 'fr' ? 'Joueurs' : 'Players') }}</div>
         <div class="fgl-peerbox">
           <div v-if="peerList.length === 0" class="fgl-peer-empty">-</div>
-          <div v-for="(name, i) in peerList" :key="i" class="fgl-peer">{{ name }}</div>
+          <div v-else class="fgl-peer-grid">
+            <div v-for="(name, i) in peerList" :key="i" class="fgl-peer">{{ name }}</div>
+          </div>
         </div>
       </div>
     </div>
-
-  </div>
+</div>
 
 </template>
 
@@ -2862,4 +2808,40 @@ const configServerConnectionStatus = computed(() => {
 .fgl-fangame-title.bad { color: #ef5350 !important; }
 .fgl-chrome-tab { min-width: 100px; max-width: 160px; }
 .fgl-adv { display: none !important; }
+
+/* ===== layout 600x580 demande ===== */
+.fgl-root { height: 100vh; width: 100vw; display: flex; flex-direction: column; overflow: hidden; background: #121212; color: #e8e8e8; font-size: 13px; font-family: "Segoe UI", system-ui, sans-serif; }
+.fgl-panel { padding: 12px 14px 6px; flex-shrink: 0; }
+.fgl-card-fixed { min-height: 248px; box-sizing: border-box; }
+.fgl-card { background: #1c1c1c; border: 1px solid #2e2e2e; border-radius: 10px; padding: 14px; }
+.fgl-card-running { border-color: #2e7d32; }
+.fgl-form { display: flex; flex-direction: column; gap: 10px; }
+.fgl-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.fgl-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fgl-label { font-size: 12px; color: #b0b0b0; font-weight: 600; }
+.fgl-input { background: #252525; color: #fff; border: 1px solid #3a3a3a; border-radius: 6px; padding: 8px 10px; font-size: 13px; height: 34px; box-sizing: border-box; width: 100%; }
+.fgl-input:focus { outline: none; border-color: #4fc3f7; }
+.fgl-fangame-row { display: flex; gap: 8px; align-items: center; }
+.fgl-fangame-row .fgl-input { flex: 1; min-width: 0; }
+.fgl-host-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; }
+.fgl-fangame-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: 14px; line-height: 34px; }
+.fangame-ok { color: #69f0ae; }
+.fangame-bad { color: #ef5350; }
+.fgl-btn { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; height: 34px; flex-shrink: 0; }
+.fgl-btn.green { background: #2e7d32; border-color: #43a047; }
+.fgl-btn.blue { background: #1565c0; border-color: #1e88e5; }
+.fgl-btn.red { background: #c62828; border-color: #e53935; }
+.fgl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.fgl-adv, .fgl-logs-wrap, .fgl-chatrow, .fgl-logbox { display: none !important; }
+.fgl-bottom { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px 14px 12px; border-top: 1px solid #2a2a2a; }
+.fgl-peers-full { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.fgl-peerbox { flex: 1; min-height: 120px; overflow-y: auto; background: #0d0d0d; border: 1px solid #2e2e2e; border-radius: 8px; padding: 8px; }
+.fgl-peer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.fgl-peer { padding: 6px 8px; border-radius: 4px; background: #1c1c1c; font-size: 12px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fgl-peer-empty { color: #555; font-size: 12px; }
+.fgl-running-line { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.fgl-running-line span { color: #888; min-width: 56px; }
+.fgl-share { flex: 1; color: #4fc3f7; }
+.fgl-status { color: #4fc3f7; font-size: 12px; margin-top: 8px; text-align: center; }
+.fgl-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 </style>
