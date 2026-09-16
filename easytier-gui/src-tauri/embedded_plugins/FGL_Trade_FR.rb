@@ -95,7 +95,6 @@ module FGLTrade
       File.delete(p) if File.exist?(p)
     rescue
     end
-  end
 
   def self.force_msg_bottom_system!
     begin; $game_system.message_position = 2 if $game_system; rescue; end

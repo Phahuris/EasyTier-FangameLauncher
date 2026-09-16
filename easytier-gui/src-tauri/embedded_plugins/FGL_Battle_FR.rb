@@ -115,7 +115,7 @@ module FGLBattle
       File.delete(p) if File.exist?(p)
     rescue
     end
-  end
+
   end
 
   def self.snapshot_items
