@@ -1,6 +1,6 @@
 # FGL_Net v1 — FR
 
-# FGL IPC only — no peer files, no FGL_peers directory
+# FGL IPC only — no peer files, no REMOVED directory
 module FGL_IPC
   @sock = nil
   def self.port
@@ -50,7 +50,6 @@ module FGL_IPC
   end
 end
 module FGL
-  DIR = "FGL_peers"
   TICK = 0.05
   STALE_KILL = 1800.0
   FW = 80
@@ -471,104 +470,53 @@ module FGL
 
   def self.read_others
     ensure_id
+    seen = {}
     begin
       FGL_IPC.poll.each do |raw|
         s = raw.to_s
-        s = s[7, s.length - 7] if s.index('PLAYER|') == 0
-        a = s.strip.split('|')
+        s = s[7, s.length - 7] if s.index("PLAYER|") == 0
+        a = s.strip.split("|")
         next if a.size < 7
         id = a[0].to_s
         next if id.empty? || id == @my_id
-        next if a[1].to_s != 'P' && a[1].to_s != ''
+        next if a[1].to_s != "P" && a[1].to_s != ""
+        seen[id] = true
         data = {
           :map => a[2].to_i, :x => a[3].to_i, :y => a[4].to_i, :dir => a[5].to_i,
           :cname => clean_name(a[6]), :speed => a[7].to_i, :pattern => a[8].to_i,
-          :action => (a.size > 15 ? safe_text(a[15]) : ''),
-          :pname => (a.size > 16 ? safe_text(a[16]) : 'Player'),
-          :clothes => (a.size > 17 ? safe_text(a[17]) : ''),
-          :hair => (a.size > 18 ? safe_text(a[18]) : ''),
-          :hat => (a.size > 19 ? safe_text(a[19]) : ''),
-          :hat2 => (a.size > 20 ? safe_text(a[20]) : ''),
+          :action => (a.size > 15 ? safe_text(a[15]) : ""),
+          :pname => (a.size > 16 ? safe_text(a[16]) : "Player"),
+          :clothes => (a.size > 17 ? safe_text(a[17]) : ""),
+          :hair => (a.size > 18 ? safe_text(a[18]) : ""),
+          :hat => (a.size > 19 ? safe_text(a[19]) : ""),
+          :hat2 => (a.size > 20 ? safe_text(a[20]) : ""),
           :cc => (a.size > 21 ? a[21].to_i : 0),
           :hc => (a.size > 22 ? a[22].to_i : 0),
           :htc => (a.size > 23 ? a[23].to_i : 0),
           :h2c => (a.size > 24 ? a[24].to_i : 0),
           :skin => (a.size > 25 ? a[25].to_i : 0),
           :state => (a.size > 26 ? a[26].to_i : 0),
-          :surfmon => (a.size > 27 ? safe_text(a[27]) : ''),
+          :surfmon => (a.size > 27 ? safe_text(a[27]) : ""),
           :bike_col => (a.size > 28 ? a[28].to_i : 0)
         }
-        data[:pname] = 'Player' if data[:pname].to_s.empty?
+        data[:pname] = "Player" if data[:pname].to_s.empty?
         if !@players[id]
-          @players[id] = data.merge(:sprite => nil, :hair_spr => nil, :hat_spr => nil, :hat2_spr => nil,
+          @players[id] = data.merge(
+            :sprite => nil, :hair_spr => nil, :hat_spr => nil, :hat2_spr => nil,
             :bike_spr => nil, :surf_sprite => nil, :surf_anim => nil,
             :label_name => nil, :label_action => nil,
             :owned_bmp => nil, :hair_bmp => nil, :hat_bmp => nil, :hat2_bmp => nil, :bike_bmp => nil,
             :label_name_bmp => nil, :label_action_bmp => nil,
             :label_key => nil, :bound_map_id => nil, :last_outfit_key => nil,
-            :frozen_sx => nil, :frozen_sy => nil)
+            :frozen_sx => nil, :frozen_sy => nil, :miss => 0
+          )
         else
           rec = @players[id]
-          data.each { |k,v| rec[k] = v }
+          data.each { |k, v| rec[k] = v }
+          rec[:miss] = 0
         end
       end
     rescue
-    end
-    return if false # no FGL_peers
-    seen = {}
-    nowt = Time.now
-    [].each do |fn|
-      next if fn == "." || fn == ".." || fn[-4, 4] != ".txt"
-      id = fn[0, fn.length - 4]
-      next if id == @my_id
-      next if id =~ /^(chal|chal_ans|chalresp|trd_|bat_|party_)/i
-      path = File.join(DIR, fn)
-      begin
-        next if (nowt - File.mtime(path)) > STALE_KILL
-      rescue
-        next
-      end
-      raw = nil
-      begin
-        File.open(path, "rb") { |f| raw = f.read }
-      rescue
-        next
-      end
-      next if !raw || raw.empty?
-      a = raw.strip.split("|")
-      next if a.size < 7
-      next if a[1].to_s != "P" && a[1].to_s != ""
-      seen[id] = true
-      data = {
-        :map => a[2].to_i, :x => a[3].to_i, :y => a[4].to_i, :dir => a[5].to_i,
-        :cname => clean_name(a[6]), :speed => a[7].to_i, :pattern => a[8].to_i,
-        :action => (a.size > 15 ? safe_text(a[15]) : ""),
-        :pname => (a.size > 16 ? safe_text(a[16]) : "Joueur"),
-        :clothes => (a.size > 17 ? safe_text(a[17]) : ""),
-        :hair => (a.size > 18 ? safe_text(a[18]) : ""),
-        :hat => (a.size > 19 ? safe_text(a[19]) : ""),
-        :hat2 => (a.size > 20 ? safe_text(a[20]) : ""),
-        :cc => (a.size > 21 ? a[21].to_i : 0),
-        :hc => (a.size > 22 ? a[22].to_i : 0),
-        :htc => (a.size > 23 ? a[23].to_i : 0),
-        :h2c => (a.size > 24 ? a[24].to_i : 0),
-        :skin => (a.size > 25 ? a[25].to_i : 0),
-        :state => (a.size > 26 ? a[26].to_i : 0),
-        :surfmon => (a.size > 27 ? safe_text(a[27]) : ""),
-        :bike_col => (a.size > 28 ? a[28].to_i : 0)
-      }
-      data[:pname] = "Joueur" if data[:pname].empty?
-      if !@players[id]
-        @players[id] = data.merge(
-          :sprite => nil, :hair_spr => nil, :hat_spr => nil, :hat2_spr => nil,
-          :bike_spr => nil, :surf_sprite => nil,
-          :label_name => nil, :label_action => nil, :label_key => nil,
-          :bound_map_id => nil, :miss => 0, :last_outfit_key => nil,
-          :frozen_sx => nil, :frozen_sy => nil
-        )
-      else
-        @players[id].merge!(data)
-      end
     end
     @players.keys.each do |id|
       if !seen[id]
@@ -579,7 +527,6 @@ module FGL
       end
     end
   end
-
   def self.build_body_bitmap(rec)
     action = state_to_action(rec[:state], rec[:cname])
     begin
@@ -721,7 +668,6 @@ module FGL
       begin
         s.ox = FW / 2
         s.oy = FH
-        dir = rec[:dir].to_i; dir = 2 if dir <= 0
         pat = rec[:pattern].to_i
         s.src_rect.set(pat * FW, ((dir - 2) / 2) * FH, FW, FH)
       rescue
@@ -786,7 +732,6 @@ module FGL
           begin
             cw = sb.width / 4
             ch = sb.height / 4
-            dir = rec[:dir].to_i; dir = 2 if dir <= 0
             pat = rec[:pattern].to_i
             ss.src_rect.set(pat * cw, ((dir - 2) / 2) * ch, cw, ch)
             ss.ox = cw / 2
@@ -823,7 +768,6 @@ module FGL
       end
     end
     begin
-      dir = rec[:dir].to_i; dir = 2 if dir <= 0
       pat = rec[:pattern].to_i
       action = state_to_action(rec[:state], rec[:cname])
       body_sy = sy
