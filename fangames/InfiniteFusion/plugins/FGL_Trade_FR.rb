@@ -95,6 +95,25 @@ module FGLTrade
       File.delete(p) if File.exist?(p)
     rescue
     end
+  end
+
+  def self.write_text(name, text)
+    write_file(name, text)
+  end
+
+  def self.read_text(name)
+    read_file(name)
+  end
+
+  def self.read_bin(name)
+    raw = read_file(name)
+    return nil if raw.nil? || raw.to_s == ""
+    begin
+      return Marshal.load(raw)
+    rescue
+      return nil
+    end
+  end
 
   def self.force_msg_bottom_system!
     begin; $game_system.message_position = 2 if $game_system; rescue; end
