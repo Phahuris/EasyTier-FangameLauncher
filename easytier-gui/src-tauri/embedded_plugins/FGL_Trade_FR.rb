@@ -95,6 +95,7 @@ module FGLTrade
       File.delete(p) if File.exist?(p)
     rescue
     end
+  end
 
   def self.write_text(name, text)
     write_file(name, text)
@@ -512,7 +513,7 @@ module FGLTrade
       rescue; end
     end
   end
-def self.install!
+  def self.install!
     return if @hooks
     @hooks = true
   end
