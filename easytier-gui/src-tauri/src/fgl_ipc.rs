@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 pub struct IpcState {
     pub socket: Mutex<Option<Arc<UdpSocket>>>,
     pub port: Mutex<u16>,
-    pub game_addr: Mutex<Option<SocketAddr>>,
+    pub game_addr: Arc<Mutex<Option<SocketAddr>>>,
     pub inbox: Mutex<VecDeque<String>>,
 }
 
@@ -19,7 +19,7 @@ impl Default for IpcState {
         Self {
             socket: Mutex::new(None),
             port: Mutex::new(0),
-            game_addr: Mutex::new(None),
+            game_addr: Arc::new(Mutex::new(None)),
             inbox: Mutex::new(VecDeque::new()),
         }
     }
