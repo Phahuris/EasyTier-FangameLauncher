@@ -715,8 +715,10 @@ async function fglEnsureLink(): Promise<void> {
     await invoke('fgl_link_set_pseudo', { pseudo: name })
     await invoke('fgl_link_start')
     const ips = [...peerIps.value]
-    await invoke('fgl_link_set_peers', { ips })
-    await invoke('fgl_link_announce')
+    if (ips.length > 0) {
+      await invoke('fgl_link_set_peers', { ips })
+      await invoke('fgl_link_announce')
+    }
   } catch { }
 }
 
@@ -727,11 +729,30 @@ function fglSetupLinkListener(): void {
         const p = ev.payload || {}
         const ip = (p.ip || '').toString()
         const port = Number(p.reply_port || p.src_port || 0)
-        if (ip && port > 0) await invoke('fgl_link_remember', { ip, port })
+        const from = (p.from || '').toString().trim()
+        // Apprendre endpoint + pseudo (menu Joueurs)
+        if (ip && port > 0) {
+          try { await invoke('fgl_link_remember', { ip, port }) } catch { }
+          if (ip && !peerIps.value.includes(ip)) {
+            peerIps.value = [...peerIps.value, ip]
+          }
+        }
+        if (from) {
+          const me = (pseudo.value || '').trim().toLowerCase()
+          if (from.toLowerCase() !== me) {
+            if (!peerList.value.some((n: string) => n.toLowerCase() === from.toLowerCase())) {
+              peerList.value = [...peerList.value, from]
+              if (!knownPeerNames.value.some((n: string) => n.toLowerCase() === from.toLowerCase())) {
+                knownPeerNames.value = [...knownPeerNames.value, from]
+                addLog(from + (s.value.playerJoined || ' joined'), 'join')
+              }
+            }
+          }
+        }
         if (p.kind === 'player' && p.payload) {
-          try { await invoke('fgl_ipc_deliver', { payload: 'PLAYER|' + p.payload, gamePort: null }) } catch { }
-        } else if (p.kind && p.kind !== 'announce') {
-          addLog('[link] ' + (p.kind || '') + ' from ' + (p.from || ip || '?'), 'info')
+          try {
+            await invoke('fgl_ipc_deliver', { payload: 'PLAYER|' + p.payload, gamePort: null })
+          } catch { }
         }
       } catch { }
     })
@@ -746,9 +767,7 @@ function fglSetupLinkListener(): void {
         if (!raw) return
         let kind = 'player'
         let payload = raw
-        if (raw.startsWith('PLAYER|')) {
-          payload = raw.substring(7)
-        }
+        if (raw.startsWith('PLAYER|')) payload = raw.substring(7)
         const ips = [...peerIps.value]
         if (ips.length === 0) return
         await invoke('fgl_link_send', { kind, payload, ips })
@@ -757,32 +776,14 @@ function fglSetupLinkListener(): void {
   }).catch(() => {})
 }
 fglSetupLinkListener()
-
-function fglSetupChatEndpointListener(): void {
-  import('@tauri-apps/api/event').then(({ listen }) => {
-    listen('chat_endpoint', async (ev: any) => {
-      try {
-        const p = ev.payload || {}
-        const ip = (p.ip || '').toString()
-        const port = Number(p.port || 0)
-        if (ip && port > 0) await invoke('chat_remember_endpoint', { ip, port })
-      } catch { }
-    })
-  }).catch(() => {})
-}
-fglSetupChatEndpointListener()
-
 async function refreshPeers() {
 
 
   if (!clientRunning.value) {
-
-    peerList.value = pseudo.value.trim() ? [pseudo.value.trim()] : []
-
-    peerIps.value = []
-
+    // Ne pas vider brutalement: garder pseudo local
+    const me = (pseudo.value || '').trim()
+    if (me && peerList.value.length === 0) peerList.value = [me]
     return
-
   }
 
   try {
@@ -861,7 +862,16 @@ async function refreshPeers() {
 
     peerList.value = nameList
 
-    peerIps.value = ipList
+    if (ipList.length > 0) {
+      peerIps.value = ipList
+    }
+    // fusion noms: ne jamais perdre un pseudo deja vu tant que session active
+    if (nameList.length > 0) {
+      const merged = new Set<string>([...peerList.value, ...nameList])
+      if (pseudo.value.trim()) merged.add(pseudo.value.trim())
+      peerList.value = [...merged]
+    }
+    void fglEnsureLink()
     try {
       const netName = (hostNetworkName?.value || joinNetworkName?.value || 'fangame').toString()
       await invoke('chat_set_network_name', { name: netName })

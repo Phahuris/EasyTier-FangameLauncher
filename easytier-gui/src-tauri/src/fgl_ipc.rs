@@ -1,4 +1,4 @@
-//! IPC local jeu <-> launcher : 127.0.0.1:port dynamique. Aucun fichier.
+//! IPC local jeu <-> launcher. Pas de fichiers peers.
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -37,7 +37,7 @@ pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result
     }
     let sock = UdpSocket::bind("127.0.0.1:0")
         .await
-        .map_err(|e| format!("fgl_ipc bind 127.0.0.1:0: {e}"))?;
+        .map_err(|e| format!("fgl_ipc bind: {e}"))?;
     let port = sock.local_addr().map_err(|e| e.to_string())?.port();
     println!("[FGL_IPC] 127.0.0.1:{port}");
     *state.port.lock().await = port;
@@ -45,6 +45,7 @@ pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result
     *guard = Some(sock.clone());
     drop(guard);
 
+    let game_addr = state.game_addr.clone();
     let app2 = app.clone();
     tokio::spawn(async move {
         let mut buf = vec![0u8; 65535];
@@ -54,6 +55,7 @@ pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result
                     if n == 0 {
                         continue;
                     }
+                    *game_addr.lock().await = Some(from);
                     let Ok(txt) = std::str::from_utf8(&buf[..n]) else {
                         continue;
                     };
@@ -126,6 +128,7 @@ pub async fn fgl_ipc_deliver(
             .await
             .ok_or_else(|| "game addr unknown".to_string())?
     };
+    state.inbox.lock().await.push_back(payload.clone());
     sock.send_to(payload.as_bytes(), addr)
         .await
         .map_err(|e| e.to_string())?;

@@ -1,5 +1,7 @@
-//! Etape 4 : transport Launcher <-> Launcher (UDP EasyTier).
-//! Data: 0.0.0.0:0 + reply_port. Bootstrap: discovery_port si endpoint inconnu.
+//! FGL_Link: Launcher <-> Launcher sur le reseau EasyTier (UDP).
+//! Data socket: 0.0.0.0:0 + reply_port dans chaque paquet.
+//! Discovery socket: 0.0.0.0:discovery_port (si libre) pour le 1er contact.
+//! Endpoints IP -> port conserves (pas d'effacement au refresh).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -37,6 +39,7 @@ pub struct LinkState {
     pub sock: Mutex<Option<Arc<UdpSocket>>>,
     pub port: Mutex<u16>,
     pub peer_ips: Mutex<Vec<IpAddr>>,
+    /// IP EasyTier -> port UDP FGL_Link (ne jamais clear globalement)
     pub endpoints: Mutex<HashMap<IpAddr, u16>>,
     pub my_pseudo: Mutex<String>,
 }
@@ -68,27 +71,7 @@ fn parse_ip(s: &str) -> Option<IpAddr> {
         .ok()
 }
 
-#[tauri::command]
-pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Result<u16, String> {
-    let mut guard = state.sock.lock().await;
-    if let Some(sock) = guard.as_ref() {
-        let p = sock
-            .local_addr()
-            .map(|a| a.port())
-            .unwrap_or(*state.port.lock().await);
-        return Ok(p);
-    }
-    let sock = UdpSocket::bind("0.0.0.0:0")
-        .await
-        .map_err(|e| format!("fgl_link bind 0.0.0.0:0: {e}"))?;
-    let port = sock.local_addr().map_err(|e| e.to_string())?.port();
-    println!("[FGL_LINK] bind 0.0.0.0:{port}");
-    *state.port.lock().await = port;
-    let sock = Arc::new(sock);
-    *guard = Some(sock.clone());
-    drop(guard);
-
-    let app2 = app.clone();
+async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
     tokio::spawn(async move {
         let mut buf = vec![0u8; 65535];
         loop {
@@ -103,7 +86,7 @@ pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Resu
                     let Ok(pkt) = serde_json::from_str::<LinkPacket>(txt) else {
                         continue;
                     };
-                    let _ = app2.emit(
+                    let _ = app.emit(
                         "fgl_link_message",
                         serde_json::json!({
                             "kind": pkt.kind,
@@ -119,6 +102,44 @@ pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Resu
             }
         }
     });
+}
+
+#[tauri::command]
+pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Result<u16, String> {
+    {
+        let guard = state.sock.lock().await;
+        if let Some(sock) = guard.as_ref() {
+            let p = sock
+                .local_addr()
+                .map(|a| a.port())
+                .unwrap_or(*state.port.lock().await);
+            return Ok(p);
+        }
+    }
+
+    let sock = UdpSocket::bind("0.0.0.0:0")
+        .await
+        .map_err(|e| format!("fgl_link bind 0.0.0.0:0: {e}"))?;
+    let port = sock.local_addr().map_err(|e| e.to_string())?.port();
+    println!("[FGL_LINK] data 0.0.0.0:{port}");
+    *state.port.lock().await = port;
+    let sock = Arc::new(sock);
+    {
+        let mut guard = state.sock.lock().await;
+        *guard = Some(sock.clone());
+    }
+
+    spawn_reader(app.clone(), sock).await;
+
+    // Bootstrap: ecoute discovery_port si libre (2e instance meme PC: skip OK)
+    let dport = discovery_port("fangame");
+    match UdpSocket::bind(("0.0.0.0", dport)).await {
+        Ok(ds) => {
+            println!("[FGL_LINK] discovery 0.0.0.0:{dport}");
+            spawn_reader(app, Arc::new(ds)).await;
+        }
+        Err(e) => println!("[FGL_LINK] discovery {dport} skip: {e}"),
+    }
 
     Ok(port)
 }
@@ -147,10 +168,13 @@ pub async fn fgl_link_set_peers(
     state: State<'_, LinkState>,
     ips: Vec<String>,
 ) -> Result<(), String> {
-    let mut list = Vec::new();
+    // Merge: ajoute les IPs, ne retire pas les endpoints deja appris
+    let mut list = state.peer_ips.lock().await.clone();
     for s in ips {
         if let Some(ip) = parse_ip(&s) {
-            list.push(ip);
+            if !list.contains(&ip) {
+                list.push(ip);
+            }
         }
     }
     *state.peer_ips.lock().await = list;
@@ -170,6 +194,11 @@ pub async fn fgl_link_remember(
         return Ok(());
     };
     state.endpoints.lock().await.insert(ip, port);
+    // garder l'IP dans peer_ips aussi
+    let mut list = state.peer_ips.lock().await;
+    if !list.contains(&ip) {
+        list.push(ip);
+    }
     Ok(())
 }
 
@@ -202,9 +231,8 @@ pub async fn fgl_link_announce(state: State<'_, LinkState>) -> Result<(), String
     for ip in peers {
         if let Some(&port) = eps.get(&ip) {
             let _ = sock.send_to(&data, SocketAddr::new(ip, port)).await;
-        } else {
-            let _ = sock.send_to(&data, SocketAddr::new(ip, dport)).await;
         }
+        let _ = sock.send_to(&data, SocketAddr::new(ip, dport)).await;
     }
     Ok(())
 }
@@ -244,11 +272,16 @@ pub async fn fgl_link_send(
         let Some(ip) = parse_ip(&s) else {
             continue;
         };
-        let port = match eps.get(&ip) {
-            Some(&p) if p > 0 => p,
-            _ => dport,
-        };
-        if sock.send_to(&data, SocketAddr::new(ip, port)).await.is_ok() {
+        if let Some(&port) = eps.get(&ip) {
+            if port > 0 && sock.send_to(&data, SocketAddr::new(ip, port)).await.is_ok() {
+                sent += 1;
+            }
+        }
+        if sock
+            .send_to(&data, SocketAddr::new(ip, dport))
+            .await
+            .is_ok()
+        {
             sent += 1;
         }
     }
