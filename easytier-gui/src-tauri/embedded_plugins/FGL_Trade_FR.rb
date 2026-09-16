@@ -95,7 +95,6 @@ module FGLTrade
       File.delete(p) if File.exist?(p)
     rescue
     end
-  end
 
   def self.write_text(name, text)
     write_file(name, text)
