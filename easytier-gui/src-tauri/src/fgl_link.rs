@@ -298,9 +298,9 @@ pub async fn fgl_link_announce(state: State<'_, LinkState>) -> Result<(), String
     let dport = discovery_port("fangame");
     for ip in peers {
         if let Some(&port) = eps.get(&ip) {
-            let _ = sock.send_to(&data, SocketAddr::new(*ip, port)).await;
+            let _ = sock.send_to(&data, SocketAddr::new(ip, port)).await;
         }
-        let _ = sock.send_to(&data, SocketAddr::new(*ip, dport)).await;
+        let _ = sock.send_to(&data, SocketAddr::new(ip, dport)).await;
     }
     Ok(())
 }
@@ -341,12 +341,12 @@ pub async fn fgl_link_send(
             continue;
         };
         if let Some(&port) = eps.get(&ip) {
-            if port > 0 && sock.send_to(&data, SocketAddr::new(*ip, port)).await.is_ok() {
+            if port > 0 && sock.send_to(&data, SocketAddr::new(ip, port)).await.is_ok() {
                 sent += 1;
             }
         }
         if sock
-            .send_to(&data, SocketAddr::new(*ip, dport))
+            .send_to(&data, SocketAddr::new(ip, dport))
             .await
             .is_ok()
         {
