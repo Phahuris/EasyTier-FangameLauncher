@@ -669,7 +669,7 @@ module FGL
         s.ox = FW / 2
         s.oy = FH
         pat = rec[:pattern].to_i
-        s.src_rect.set(pat * FW, ((dir - 2) / 2) * FH, FW, FH)
+        s.src_rect.set(pat * FW, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2) * FH, FW, FH)
       rescue
       end
       rec[:sprite] = s
@@ -733,7 +733,7 @@ module FGL
             cw = sb.width / 4
             ch = sb.height / 4
             pat = rec[:pattern].to_i
-            ss.src_rect.set(pat * cw, ((dir - 2) / 2) * ch, cw, ch)
+            ss.src_rect.set(pat * cw, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2) * ch, cw, ch)
             ss.ox = cw / 2
             ss.oy = ch - 16
           rescue
@@ -752,6 +752,8 @@ module FGL
   def self.update_sprite_pos(rec)
     s = rec[:sprite]
     return unless s
+    dir = rec[:dir].to_i
+    dir = 2 if dir <= 0
     locked = ui_locks_peers?
     if locked && rec[:frozen_sx] && rec[:frozen_sy]
       sx = rec[:frozen_sx]
