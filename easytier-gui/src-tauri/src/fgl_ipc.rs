@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
@@ -12,6 +12,7 @@ pub struct IpcState {
     pub port: Mutex<u16>,
     pub game_addr: Arc<Mutex<Option<SocketAddr>>>,
     pub inbox: Mutex<VecDeque<String>>,
+    pub pending: Mutex<VecDeque<String>>,
 }
 
 impl Default for IpcState {
@@ -21,10 +22,41 @@ impl Default for IpcState {
             port: Mutex::new(0),
             game_addr: Arc::new(Mutex::new(None)),
             inbox: Mutex::new(VecDeque::new()),
+            pending: Mutex::new(VecDeque::new()),
         }
     }
 }
 
+
+pub async fn deliver_to_game(state: &IpcState, payload: &str) -> Result<(), String> {
+    let sock = {
+        let g = state.socket.lock().await;
+        g.as_ref()
+            .cloned()
+            .ok_or_else(|| "ipc not started".to_string())?
+    };
+    let addr_opt = *state.game_addr.lock().await;
+    if let Some(addr) = addr_opt {
+        state.inbox.lock().await.push_back(payload.to_string());
+        sock.send_to(payload.as_bytes(), addr)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        let mut q = state.pending.lock().await;
+        if q.len() < 256 {
+            q.push_back(payload.to_string());
+        }
+        Ok(())
+    }
+}
+
+async fn flush_pending(state: &IpcState, sock: &UdpSocket, addr: std::net::SocketAddr) {
+    let mut q = state.pending.lock().await;
+    while let Some(msg) = q.pop_front() {
+        let _ = sock.send_to(msg.as_bytes(), addr).await;
+    }
+}
 #[tauri::command]
 pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result<u16, String> {
     let mut guard = state.socket.lock().await;
@@ -55,7 +87,17 @@ pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result
                     if n == 0 {
                         continue;
                     }
-                    *game_addr.lock().await = Some(from);
+                    let first = {
+                        let mut ga = game_addr.lock().await;
+                        let was = ga.is_none();
+                        *ga = Some(from);
+                        was
+                    };
+                    if first {
+                        if let Some(ipc) = app2.try_state::<IpcState>() {
+                            flush_pending(&ipc, &sock, from).await;
+                        }
+                    }
                     let Ok(txt) = std::str::from_utf8(&buf[..n]) else {
                         continue;
                     };
@@ -103,36 +145,15 @@ pub async fn fgl_ipc_deliver(
     payload: String,
     game_port: Option<u16>,
 ) -> Result<(), String> {
-    let sock = {
-        let g = state.socket.lock().await;
-        g.as_ref()
-            .cloned()
-            .ok_or_else(|| "ipc not started".to_string())?
-    };
-    let addr = if let Some(p) = game_port {
+    if let Some(p) = game_port {
         if p > 0 {
-            format!("127.0.0.1:{p}")
+            let addr: SocketAddr = format!("127.0.0.1:{p}")
                 .parse()
-                .map_err(|e: std::net::AddrParseError| e.to_string())?
-        } else {
-            state
-                .game_addr
-                .lock()
-                .await
-                .ok_or_else(|| "game addr unknown".to_string())?
+                .map_err(|e: std::net::AddrParseError| e.to_string())?;
+            *state.game_addr.lock().await = Some(addr);
         }
-    } else {
-        state
-            .game_addr
-            .lock()
-            .await
-            .ok_or_else(|| "game addr unknown".to_string())?
-    };
-    state.inbox.lock().await.push_back(payload.clone());
-    sock.send_to(payload.as_bytes(), addr)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    }
+    deliver_to_game(&state, &payload).await
 }
 
 #[tauri::command]

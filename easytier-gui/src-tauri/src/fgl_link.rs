@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
@@ -86,6 +86,18 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
                     let Ok(pkt) = serde_json::from_str::<LinkPacket>(txt) else {
                         continue;
                     };
+                                        // Link -> IPC local game
+                    if pkt.kind == "player" && !pkt.payload.is_empty() {
+                        if let Some(ipc) = app.try_state::<crate::fgl_ipc::IpcState>() {
+                            let line = if pkt.payload.starts_with("PLAYER|") {
+                                pkt.payload.clone()
+                            } else {
+                                format!("PLAYER|{}", pkt.payload)
+                            };
+                            let _ = crate::fgl_ipc::deliver_to_game(&ipc, &line).await;
+                        }
+                    }
+
                     let _ = app.emit(
                         "fgl_link_message",
                         serde_json::json!({
