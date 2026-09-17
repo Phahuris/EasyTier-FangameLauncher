@@ -98,7 +98,80 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
                     let Ok(pkt) = serde_json::from_str::<LinkPacket>(txt) else {
                         continue;
                     };
-                                        // Link -> IPC local game
+
+                    // Bootstrap FGL_Link:
+                    // - apprendre endpoints[from.ip()] = pkt.reply_port (port DATA distant)
+                    // - si ce n'est pas deja un announce, repondre sur ip:reply_port
+                    //   pour que le pair apprenne NOTRE port DATA (via notre reply_port)
+                    // - kind "announce" => pas de reponse (coupe la boucle)
+                    // - kind "announce" n'est jamais livre a FGL_Net (seul "player" l'est)
+                    if let Some(link) = app.try_state::<LinkState>() {
+                        let remote_data = pkt.reply_port;
+                        if remote_data > 0 {
+                            let ip = from.ip();
+                            let mut learned_new = false;
+                            {
+                                let mut eps = link.endpoints.lock().await;
+                                match eps.get(&ip).copied() {
+                                    Some(p) if p == remote_data => {}
+                                    _ => {
+                                        eps.insert(ip, remote_data);
+                                        learned_new = true;
+                                        fgl_trace(&format!(
+                                            "[PEER LEARN] ip={} port={}",
+                                            ip, remote_data
+                                        ));
+                                    }
+                                }
+                            }
+                            {
+                                let mut list = link.peer_ips.lock().await;
+                                if !list.contains(&ip) {
+                                    list.push(ip);
+                                }
+                            }
+                            // Reponse bootstrap: player/autre -> announce ; announce -> silence
+                            if pkt.kind != "announce" {
+                                let my_port = *link.port.lock().await;
+                                let sock_data = {
+                                    let g = link.sock.lock().await;
+                                    g.as_ref().cloned()
+                                };
+                                if my_port > 0 {
+                                    if let Some(sock_data) = sock_data {
+                                        let pseudo = link.my_pseudo.lock().await.clone();
+                                        let reply = LinkPacket {
+                                            v: 1,
+                                            kind: "announce".into(),
+                                            from: pseudo,
+                                            payload: String::new(),
+                                            reply_port: my_port,
+                                            ts: now_ts(),
+                                        };
+                                        if let Ok(data) = serde_json::to_vec(&reply) {
+                                            let dest = SocketAddr::new(ip, remote_data);
+                                            match sock_data.send_to(&data, dest).await {
+                                                Ok(_) => {
+                                                    fgl_trace(&format!(
+                                                        "[PEER REPLY] to={}:{} learned_new={}",
+                                                        ip, remote_data, learned_new
+                                                    ));
+                                                }
+                                                Err(e) => {
+                                                    fgl_trace(&format!(
+                                                        "[PEER REPLY FAIL] to={}:{} err={}",
+                                                        ip, remote_data, e
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Link -> IPC local game
                     if pkt.kind == "player" && !pkt.payload.is_empty() {
                         if let Some(ipc) = app.try_state::<crate::fgl_ipc::IpcState>() {
                             let line = if pkt.payload.starts_with("PLAYER|") {
