@@ -94,7 +94,9 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
                             } else {
                                 format!("PLAYER|{}", pkt.payload)
                             };
+                            println!("[PLAYER IN LINK] from={} bytes={}", pkt.from, line.len());
                             let _ = crate::fgl_ipc::deliver_to_game(&ipc, &line).await;
+                            println!("[PLAYER IN IPC] delivered");
                         }
                     }
 
@@ -116,7 +118,59 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
     });
 }
 
-#[tauri::command]
+
+/// Appele depuis fgl_ipc: PLAYER local -> autres launchers.
+pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
+    let my_port = *state.port.lock().await;
+    if my_port == 0 {
+        return 0;
+    }
+    let sock = {
+        let g = state.sock.lock().await;
+        match g.as_ref() {
+            Some(s) => s.clone(),
+            None => return 0,
+        }
+    };
+    let pseudo = state.my_pseudo.lock().await.clone();
+    let body = payload.strip_prefix("PLAYER|").unwrap_or(payload);
+    let pkt = LinkPacket {
+        v: 1,
+        kind: "player".into(),
+        from: pseudo,
+        payload: body.to_string(),
+        reply_port: my_port,
+        ts: now_ts(),
+    };
+    let Ok(data) = serde_json::to_vec(&pkt) else {
+        return 0;
+    };
+    let peers = state.peer_ips.lock().await.clone();
+    let eps = state.endpoints.lock().await.clone();
+    let dport = discovery_port("fangame");
+    let mut sent = 0u32;
+    for ip in peers {
+        if let Some(&port) = eps.get(&ip) {
+            if port > 0 && sock.send_to(&data, SocketAddr::new(ip, port)).await.is_ok() {
+                sent += 1;
+            }
+        }
+        if sock
+            .send_to(&data, SocketAddr::new(ip, dport))
+            .await
+            .is_ok()
+        {
+            sent += 1;
+        }
+    }
+    if sent > 0 {
+        println!("[PLAYER OUT LINK] peers={} sent={}", peers.len(), sent);
+    } else {
+        println!("[PLAYER OUT LINK] no send peers={} eps={}", peers.len(), eps.len());
+    }
+    sent
+}
+[tauri::command]
 pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Result<u16, String> {
     {
         let guard = state.sock.lock().await;

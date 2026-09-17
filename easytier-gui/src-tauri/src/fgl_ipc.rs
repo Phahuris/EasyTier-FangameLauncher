@@ -109,6 +109,10 @@ pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result
                             "port": from.port(),
                         }),
                     );
+                    println!("[PLAYER OUT IPC] bytes={}", txt.len());
+                    if let Some(link) = app2.try_state::<crate::fgl_link::LinkState>() {
+                        let _ = crate::fgl_link::relay_player(&link, txt).await;
+                    }
                 }
                 Err(_) => break,
             }
