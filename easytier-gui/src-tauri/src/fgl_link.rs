@@ -170,7 +170,7 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
     }
     sent
 }
-[tauri::command]
+#[tauri::command]
 pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Result<u16, String> {
     {
         let guard = state.sock.lock().await;
