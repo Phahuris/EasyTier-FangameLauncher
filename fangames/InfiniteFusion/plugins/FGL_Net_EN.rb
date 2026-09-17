@@ -36,7 +36,14 @@ module FGL_IPC
       begin
         if @sock.respond_to?(:recvfrom_nonblock)
           data, _ = @sock.recvfrom_nonblock(65535)
-          out << data.to_s if data
+          if data
+            s = data.to_s
+            out << s
+            begin
+              FGL.dbg("[FGL IPC IN] bytes=#{s.bytesize} raw=#{s[0, 120]}") if defined?(FGL)
+            rescue
+            end
+          end
         else
           break
         end
@@ -64,6 +71,16 @@ module FGL
   @last_action_written = nil
 
   def self.log(msg); end
+
+  # --- TEMP DEBUG (diag only) ---
+  def self.dbg(msg)
+    begin
+      path = File.join(ENV["TEMP"] || ENV["TMP"] || ".", "fgl_ruby_trace.log")
+      File.open(path, "a") { |f| f.puts("[#{Time.now.strftime("%H:%M:%S")}] #{msg}") }
+    rescue
+    end
+  end
+  # --- END TEMP DEBUG ---
 
   def self.ensure_id
     return if @my_id
@@ -481,6 +498,7 @@ module FGL
         next if id.empty? || id == @my_id
         next if a[1].to_s != "P" && a[1].to_s != ""
         seen[id] = true
+        dbg("[FGL PLAYER PARSED] id=#{id} map=#{a[2]} x=#{a[3]} y=#{a[4]} dir=#{a[5]} pname=#{a.size > 16 ? a[16] : "?"}")
         data = {
           :map => a[2].to_i, :x => a[3].to_i, :y => a[4].to_i, :dir => a[5].to_i,
           :cname => clean_name(a[6]), :speed => a[7].to_i, :pattern => a[8].to_i,
@@ -501,6 +519,7 @@ module FGL
         }
         data[:pname] = "Player" if data[:pname].to_s.empty?
         if !@players[id]
+          dbg("[FGL PLAYER STORED] id=#{id} (new)")
           @players[id] = data.merge(
             :sprite => nil, :hair_spr => nil, :hat_spr => nil, :hat2_spr => nil,
             :bike_spr => nil, :surf_sprite => nil, :surf_anim => nil,
@@ -514,6 +533,7 @@ module FGL
           rec = @players[id]
           data.each { |k, v| rec[k] = v }
           rec[:miss] = 0
+          dbg("[FGL PLAYER STORED] id=#{id} (update) x=#{rec[:x]} y=#{rec[:y]}")
         end
       end
     rescue
@@ -524,6 +544,7 @@ module FGL
         kill(id) if @players[id][:miss] > 600
       else
         @players[id][:miss] = 0
+        dbg("[FGL READ OTHERS] id=#{id} miss=0 players=#{@players.size}")
       end
     end
   end
@@ -627,19 +648,23 @@ module FGL
     return if id.to_s == (@my_id.to_s rescue "")
     rec = @players[id]
     return unless rec
+    dbg("[FGL ENSURE] id=#{id} map=#{rec[:map]} x=#{rec[:x]} y=#{rec[:y]}")
     begin
       return unless $game_map && $scene.is_a?(Scene_Map)
     rescue
+      dbg("[FGL ENSURE] id=#{id} SKIP not Scene_Map")
       return
     end
     remote_mid = rec[:map].to_i
     tmap = target_map_for(remote_mid)
     if tmap.nil?
+      dbg("[FGL ENSURE] id=#{id} SKIP tmap nil remote_mid=#{remote_mid}")
       destroy_player_visuals(rec) if rec[:sprite]
       return
     end
     rec[:_tmap] = tmap
     v = vp
+    dbg("[FGL VP] id=#{id} vp=#{v.nil? ? "nil" : v.class.name}")
     return if v.nil?
 
     action = state_to_action(rec[:state], rec[:cname])
@@ -662,6 +687,7 @@ module FGL
     if need
       destroy_player_visuals(rec)
       body = build_body_bitmap(rec)
+      dbg("[FGL BODY BITMAP] id=#{id} body=#{body.nil? ? "nil" : "ok #{body.width}x#{body.height}"}")
       return if body.nil?
 
       s = make_layer_sprite(v, body, 100)
@@ -674,6 +700,7 @@ module FGL
       end
       rec[:sprite] = s
       rec[:owned_bmp] = body
+      dbg("[FGL SPRITE CREATED] id=#{id} sprite=#{s.nil? ? "nil" : s.class.name}")
 
       if defined?(getOverworldHairFilename) && rec[:hair].to_s != "" && rec[:hair].to_s != "0"
         hp = getOverworldHairFilename(rec[:hair]) rescue nil
@@ -776,6 +803,7 @@ module FGL
       body_sy = sy + 16 if action == "surf" || action == "dive"
       s.x = sx
       s.y = body_sy
+      dbg("[FGL SPRITE POSITION] id=#{rec[:pname]} x=#{sx} y=#{body_sy} dir=#{dir}")
       base_z = calc_z(sy, rec[:y])
       mon_bob = 0
       begin
@@ -801,7 +829,7 @@ module FGL
         if ss.bitmap
           cw = ss.bitmap.width / 4
           ch = ss.bitmap.height / 4
-          ss.src_rect.set(pat * cw, ((dir - 2) / 2) * ch, cw, ch)
+          ss.src_rect.set(pat * cw, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2 * ch, cw, ch)
           ss.ox = cw / 2
           ss.oy = ch - 16
           ss.oy -= mon_bob if mon_bob != 0
@@ -817,7 +845,7 @@ module FGL
         bs.ox = s.ox
         bs.oy = s.oy
         if bs.bitmap
-          bs.src_rect.set(pat * FW, ((dir - 2) / 2) * FH, FW, FH)
+          bs.src_rect.set(pat * FW, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2 * FH, FW, FH)
         end
         bs.z = base_z - 1
         apply_tint(bs)
