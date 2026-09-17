@@ -669,7 +669,7 @@ module FGL
         s.ox = FW / 2
         s.oy = FH
         pat = rec[:pattern].to_i
-        s.src_rect.set(pat * FW, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2) * FH, FW, FH)
+        s.src_rect.set(pat * FW, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2 * FH, FW, FH)
       rescue
       end
       rec[:sprite] = s
@@ -733,7 +733,7 @@ module FGL
             cw = sb.width / 4
             ch = sb.height / 4
             pat = rec[:pattern].to_i
-            ss.src_rect.set(pat * cw, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2) * ch, cw, ch)
+            ss.src_rect.set(pat * cw, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2 * ch, cw, ch)
             ss.ox = cw / 2
             ss.oy = ch - 16
           rescue
