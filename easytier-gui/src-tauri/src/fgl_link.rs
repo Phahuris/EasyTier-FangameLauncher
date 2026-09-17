@@ -148,6 +148,8 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
     let peers = state.peer_ips.lock().await.clone();
     let eps = state.endpoints.lock().await.clone();
     let dport = discovery_port("fangame");
+    let n_peers = peers.len();
+    let n_eps = eps.len();
     let mut sent = 0u32;
     for ip in peers {
         if let Some(&port) = eps.get(&ip) {
@@ -164,9 +166,9 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
         }
     }
     if sent > 0 {
-        println!("[PLAYER OUT LINK] peers={} sent={}", peers.len(), sent);
+        println!("[PLAYER OUT LINK] peers={} sent={}", n_peers, sent);
     } else {
-        println!("[PLAYER OUT LINK] no send peers={} eps={}", peers.len(), eps.len());
+        println!("[PLAYER OUT LINK] no send peers={} eps={}", n_peers, n_eps);
     }
     sent
 }
@@ -296,9 +298,9 @@ pub async fn fgl_link_announce(state: State<'_, LinkState>) -> Result<(), String
     let dport = discovery_port("fangame");
     for ip in peers {
         if let Some(&port) = eps.get(&ip) {
-            let _ = sock.send_to(&data, SocketAddr::new(ip, port)).await;
+            let _ = sock.send_to(&data, SocketAddr::new(*ip, port)).await;
         }
-        let _ = sock.send_to(&data, SocketAddr::new(ip, dport)).await;
+        let _ = sock.send_to(&data, SocketAddr::new(*ip, dport)).await;
     }
     Ok(())
 }
@@ -339,12 +341,12 @@ pub async fn fgl_link_send(
             continue;
         };
         if let Some(&port) = eps.get(&ip) {
-            if port > 0 && sock.send_to(&data, SocketAddr::new(ip, port)).await.is_ok() {
+            if port > 0 && sock.send_to(&data, SocketAddr::new(*ip, port)).await.is_ok() {
                 sent += 1;
             }
         }
         if sock
-            .send_to(&data, SocketAddr::new(ip, dport))
+            .send_to(&data, SocketAddr::new(*ip, dport))
             .await
             .is_ok()
         {
