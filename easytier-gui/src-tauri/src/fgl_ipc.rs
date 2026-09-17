@@ -7,6 +7,18 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
+
+fn fgl_trace(msg: &str) {
+    use std::io::Write;
+    let path = std::env::temp_dir().join("fgl_player_trace.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(f, "{}", msg);
+    }
+}
 pub struct IpcState {
     pub socket: Mutex<Option<Arc<UdpSocket>>>,
     pub port: Mutex<u16>,
@@ -109,7 +121,7 @@ pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result
                             "port": from.port(),
                         }),
                     );
-                    println!("[PLAYER OUT IPC] bytes={}", txt.len());
+                    fgl_trace(&format!("[PLAYER OUT IPC] bytes={} raw={:.80}", txt.len(), txt));
                     if let Some(link) = app2.try_state::<crate::fgl_link::LinkState>() {
                         let _ = crate::fgl_link::relay_player(&link, txt).await;
                     }

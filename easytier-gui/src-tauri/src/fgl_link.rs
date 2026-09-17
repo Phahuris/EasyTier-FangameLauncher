@@ -11,6 +11,18 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
+
+fn fgl_trace(msg: &str) {
+    use std::io::Write;
+    let path = std::env::temp_dir().join("fgl_player_trace.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(f, "{}", msg);
+    }
+}
 fn discovery_port(network: &str) -> u16 {
     let mut h: u32 = 2166136261;
     for b in network.as_bytes() {
@@ -94,9 +106,9 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
                             } else {
                                 format!("PLAYER|{}", pkt.payload)
                             };
-                            println!("[PLAYER IN LINK] from={} bytes={}", pkt.from, line.len());
+                            fgl_trace(&format!("[PLAYER IN LINK] from={} kind=player bytes={}", pkt.from, line.len()));
                             let _ = crate::fgl_ipc::deliver_to_game(&ipc, &line).await;
-                            println!("[PLAYER IN IPC] delivered");
+                            fgl_trace("[PLAYER IN IPC] delivered");
                         }
                     }
 
@@ -153,22 +165,30 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
     let mut sent = 0u32;
     for ip in peers {
         if let Some(&port) = eps.get(&ip) {
-            if port > 0 && sock.send_to(&data, SocketAddr::new(ip, port)).await.is_ok() {
-                sent += 1;
+            if port > 0 {
+                match sock.send_to(&data, SocketAddr::new(ip, port)).await {
+                    Ok(_) => {
+                        sent += 1;
+                        fgl_trace(&format!("[PLAYER OUT LINK PEER] ip={} port={}", ip, port));
+                    }
+                    Err(e) => fgl_trace(&format!("[PLAYER OUT LINK PEER FAIL] ip={} port={} err={}", ip, port, e)),
+                }
             }
+        } else {
+            fgl_trace(&format!("[PLAYER OUT LINK PEER] ip={} no endpoint", ip));
         }
-        if sock
-            .send_to(&data, SocketAddr::new(ip, dport))
-            .await
-            .is_ok()
-        {
-            sent += 1;
+        match sock.send_to(&data, SocketAddr::new(ip, dport)).await {
+            Ok(_) => {
+                sent += 1;
+                fgl_trace(&format!("[PLAYER OUT LINK DISCOVERY] ip={} port={}", ip, dport));
+            }
+            Err(e) => fgl_trace(&format!("[PLAYER OUT LINK DISCOVERY FAIL] ip={} port={} err={}", ip, dport, e)),
         }
     }
     if sent > 0 {
-        println!("[PLAYER OUT LINK] peers={} sent={}", n_peers, sent);
+        fgl_trace(&format!("[PLAYER OUT LINK] peers={} sent={}", n_peers, sent));
     } else {
-        println!("[PLAYER OUT LINK] no send peers={} eps={}", n_peers, n_eps);
+        fgl_trace(&format!("[PLAYER OUT LINK] no send peers={} eps={}", n_peers, n_eps));
     }
     sent
 }
@@ -245,7 +265,8 @@ pub async fn fgl_link_set_peers(
             }
         }
     }
-    *state.peer_ips.lock().await = list;
+    *state.peer_ips.lock().await = list.clone();
+    fgl_trace(&format!("[PEER SET] count={} ips={:?}", list.len(), list));
     Ok(())
 }
 
@@ -262,6 +283,7 @@ pub async fn fgl_link_remember(
         return Ok(());
     };
     state.endpoints.lock().await.insert(ip, port);
+    fgl_trace(&format!("[PEER REMEMBER] ip={} port={}", ip, port));
     // garder l'IP dans peer_ips aussi
     let mut list = state.peer_ips.lock().await;
     if !list.contains(&ip) {
