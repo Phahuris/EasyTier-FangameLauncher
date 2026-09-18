@@ -1,6 +1,12 @@
-# FGL_RemotePlayer_Test.rb — prototype Game_Character + Sprite_Character + IPC
-# Source unique: fangames/InfiniteFusion/plugins/
-# map_id distant n impose PAS la map locale
+﻿# =============================================================================
+# FGL_RemotePlayer_Test.rb — PROTOTYPE EXPERIMENTAL (isole)
+# =============================================================================
+# Joueur distant = Game_Character + Sprite_Character via IPC launcher UNIQUEMENT.
+# Chemin: Game -> IPC (FGL_IPC_PORT) -> Launcher -> EasyTier -> Launcher -> IPC -> Game
+# - Ne modifie PAS FGL_Net / Trade / Battle
+# - Transport IPC launcher uniquement (pas de fichiers peers, pas de transport parallele)
+# - map_id distant N'IMPOSE PAS la map locale
+# =============================================================================
 
 module FGL_RemotePlayer_Test
   TICK = 0.05
@@ -14,6 +20,7 @@ module FGL_RemotePlayer_Test
   @hooks_done = false
   @status_n = 0
   @last_err = ""
+  @poll_raw = 0
 
   def self.status_path
     begin
@@ -40,8 +47,8 @@ module FGL_RemotePlayer_Test
       lines << "vp=#{map_viewport ? "ok" : "nil"}"
       lines << "err=#{@last_err}"
       @remotes.each do |id, rec|
-        d = rec[:data]
-        lines << "remote id=#{id} map=#{d[:map]} x=#{d[:x]} y=#{d[:y]} dir=#{d[:dir]} spr=#{rec[:sprite] ? "yes" : "no"}"
+        d = rec[:data] || {}
+        lines << "remote id=#{id} map=#{d[:map]} x=#{d[:x]} y=#{d[:y]} dir=#{d[:dir]} cname=#{d[:cname]} spr=#{rec[:sprite] ? "yes" : "no"}"
       end
       lines << extra if extra.to_s != ""
       File.open(status_path, "w") { |f| f.puts lines.join("\n") }
@@ -57,6 +64,7 @@ module FGL_RemotePlayer_Test
 
   def self.ensure_sock
     return if @sock
+    return if ipc_port <= 0
     begin
       require "socket"
       @sock = UDPSocket.new
@@ -80,6 +88,7 @@ module FGL_RemotePlayer_Test
   end
 
   def self.ipc_poll
+    return [] if ipc_port <= 0
     ensure_sock
     return [] unless @sock
     out = []
@@ -162,40 +171,95 @@ module FGL_RemotePlayer_Test
     nil
   end
 
+  def self.player_display_name
+    begin
+      return safe_text($player.name) if defined?($player) && $player && $player.name
+    rescue
+    end
+    begin
+      return safe_text($Trainer.name) if defined?($Trainer) && $Trainer && $Trainer.name
+    rescue
+    end
+    "Player"
+  end
+
+  def self.detect_move_state
+    begin
+      return 1 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.surfing
+      return 4 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.diving
+      return 2 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.bicycle
+      return 3 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.fishing
+    rescue
+    end
+    begin
+      cn = $game_player.character_name.to_s.downcase
+      return 1 if cn.include?("surf")
+      return 4 if cn.include?("dive")
+      return 2 if cn.include?("bike")
+      return 3 if cn.include?("fish")
+    rescue
+    end
+    0
+  end
+
+  def self.read_trainer_outfit
+    clothes = hair = hat = hat2 = ""
+    cc = hc = htc = h2c = skin = 0
+    surfmon = ""
+    bike_col = 0
+    begin
+      if defined?($Trainer) && $Trainer
+        t = $Trainer
+        clothes = t.clothes.to_s if t.respond_to?(:clothes)
+        hair    = t.hair.to_s if t.respond_to?(:hair)
+        hat     = t.hat.to_s if t.respond_to?(:hat)
+        hat2    = t.hat2.to_s if t.respond_to?(:hat2)
+        cc  = t.clothes_color.to_i if t.respond_to?(:clothes_color)
+        hc  = t.hair_color.to_i if t.respond_to?(:hair_color)
+        htc = t.hat_color.to_i if t.respond_to?(:hat_color)
+        h2c = t.hat2_color.to_i if t.respond_to?(:hat2_color)
+        skin = t.skin_tone.to_i if t.respond_to?(:skin_tone)
+        bike_col = t.bike_color.to_i if t.respond_to?(:bike_color)
+        if t.respond_to?(:surfing_pokemon) && t.surfing_pokemon
+          begin
+            sp = t.surfing_pokemon
+            surfmon = sp.respond_to?(:species) ? sp.species.to_s : sp.to_s
+          rescue
+            surfmon = t.surfing_pokemon.to_s
+          end
+        end
+      end
+    rescue
+    end
+    [safe_text(clothes), safe_text(hair), safe_text(hat), safe_text(hat2),
+     cc, hc, htc, h2c, skin, safe_text(surfmon), bike_col]
+  end
+
   def self.write_local
     return unless $game_player && $game_map
+    return if ipc_port <= 0
     ensure_id
     p = $game_player
-    cn = "walk"
+    cname = clean_name(p.character_name rescue "walk")
+    cname = "walk" if cname.empty?
+    px = p.x.to_i rescue 0
+    py = p.y.to_i rescue 0
+    pdir = p.direction.to_i rescue 2
+    pspeed = p.move_speed.to_i rescue 3
+    ppat = p.pattern.to_i rescue 0
     begin
-      cn = p.character_name.to_s
+      ppat = p.pattern_surf.to_i if detect_move_state == 1 && p.respond_to?(:pattern_surf)
     rescue
     end
-    cname = clean_name(cn)
-    px = 0
-    py = 0
-    pdir = 2
-    pspeed = 3
-    ppat = 0
-    mid = 0
-    begin; px = p.x.to_i; rescue; end
-    begin; py = p.y.to_i; rescue; end
-    begin; pdir = p.direction.to_i; rescue; end
-    begin; pspeed = p.move_speed.to_i; rescue; end
-    begin; ppat = p.pattern.to_i; rescue; end
-    begin; mid = $game_map.map_id.to_i; rescue; end
-    pname = "Player"
-    begin
-      pname = safe_text($player.name) if defined?($player) && $player && $player.name
-    rescue
-    end
-    begin
-      pname = safe_text($Trainer.name) if pname == "Player" && defined?($Trainer) && $Trainer && $Trainer.name
-    rescue
-    end
+    mid = ($game_map.map_id rescue 0).to_i
+    pname = player_display_name
+    action = ""
+    state = detect_move_state
+    clothes, hair, hat, hat2, cc, hc, htc, h2c, skin, surfmon, bike_col = read_trainer_outfit
     line = [
-      @my_id, "P", mid, px, py, pdir, cname, pspeed, ppat,
-      0, 0, 0, 0, 0, 0, "", pname
+      @my_id, "P", mid, px, py, pdir, cname, pspeed, ppat, 0,
+      0, 0, 0, 0, 0, action, pname,
+      clothes, hair, hat, hat2, cc, hc, htc, h2c, skin, state, surfmon, bike_col, Time.now.to_i
     ].join("|")
     ipc_send(line)
   end
@@ -218,7 +282,20 @@ module FGL_RemotePlayer_Test
       :cname => clean_name(a[6]),
       :speed => a[7].to_i,
       :pattern => a[8].to_i,
-      :pname => (a.size > 16 ? safe_text(a[16]) : "Player")
+      :action => (a.size > 15 ? safe_text(a[15]) : ""),
+      :pname => (a.size > 16 ? safe_text(a[16]) : "Player"),
+      :clothes => (a.size > 17 ? safe_text(a[17]) : ""),
+      :hair => (a.size > 18 ? safe_text(a[18]) : ""),
+      :hat => (a.size > 19 ? safe_text(a[19]) : ""),
+      :hat2 => (a.size > 20 ? safe_text(a[20]) : ""),
+      :cc => (a.size > 21 ? a[21].to_i : 0),
+      :hc => (a.size > 22 ? a[22].to_i : 0),
+      :htc => (a.size > 23 ? a[23].to_i : 0),
+      :h2c => (a.size > 24 ? a[24].to_i : 0),
+      :skin => (a.size > 25 ? a[25].to_i : 0),
+      :state => (a.size > 26 ? a[26].to_i : 0),
+      :surfmon => (a.size > 27 ? safe_text(a[27]) : ""),
+      :bike_col => (a.size > 28 ? a[28].to_i : 0)
     }
   end
 
@@ -241,6 +318,7 @@ module FGL_RemotePlayer_Test
 
   def self.ingest_network
     ensure_id
+    return if ipc_port <= 0
     seen = {}
     batch = ipc_poll
     @poll_raw = (@poll_raw || 0) + batch.size
@@ -400,6 +478,7 @@ end
 
 class FGL_RemoteCharacter < Game_Character
   attr_reader :net_id, :net_map_id, :net_pname
+  attr_reader :net_clothes, :net_hair, :net_hat, :net_hat2, :net_state
 
   def initialize
     begin
@@ -425,12 +504,28 @@ class FGL_RemoteCharacter < Game_Character
     @net_id = nil
     @net_map_id = 0
     @net_pname = "Player"
+    @net_clothes = ""
+    @net_hair = ""
+    @net_hat = ""
+    @net_hat2 = ""
+    @net_state = 0
     @through = true
     @move_frequency = 6
     @walk_anime = true
     @step_anime = false
     @direction_fix = false
     @opacity = 255
+    @locked_pattern = 0
+  end
+
+  def update
+    begin
+      if respond_to?(:update_animation, true)
+        update_animation
+      end
+    rescue
+    end
+    @pattern = @locked_pattern if defined?(@locked_pattern)
   end
 
   def apply_net(data)
@@ -438,6 +533,12 @@ class FGL_RemoteCharacter < Game_Character
     @net_map_id = data[:map].to_i
     @net_pname = data[:pname].to_s
     @net_pname = "Player" if @net_pname.empty?
+    @net_clothes = data[:clothes].to_s
+    @net_hair = data[:hair].to_s
+    @net_hat = data[:hat].to_s
+    @net_hat2 = data[:hat2].to_s
+    @net_state = data[:state].to_i
+
     nx = data[:x].to_i
     ny = data[:y].to_i
     ndir = data[:dir].to_i
@@ -447,6 +548,7 @@ class FGL_RemoteCharacter < Game_Character
     nspd = 3 if nspd <= 0
     ncname = data[:cname].to_s
     ncname = "walk" if ncname.empty?
+
     begin
       if respond_to?(:moveto)
         moveto(nx, ny)
@@ -465,8 +567,10 @@ class FGL_RemoteCharacter < Game_Character
       @x = nx
       @y = ny
     end
+
     @direction = ndir
     @pattern = npat
+    @locked_pattern = npat
     @move_speed = nspd
     begin
       @character_name = ncname
