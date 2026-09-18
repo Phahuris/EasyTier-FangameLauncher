@@ -17,7 +17,10 @@ fn extract_seq(payload: &str) -> u64 {
 
 fn fgl_trace(msg: &str) {
     use std::io::Write;
-    let path = std::env::temp_dir().join("fgl_player_trace.log");
+    let path = std::env::var("USERPROFILE")
+        .ok()
+        .map(|u| std::path::PathBuf::from(u).join("Desktop").join("fgl_player_trace.log"))
+        .unwrap_or_else(|| std::env::temp_dir().join("fgl_player_trace.log"));
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
