@@ -597,6 +597,8 @@ const FGL_TRADE_EN_RB: &str = include_str!("../embedded_plugins/FGL_Trade_EN.rb"
 const FGL_NET_FR_RB: &str = include_str!("../embedded_plugins/FGL_Net_FR.rb");
 const FGL_NET_EN_RB: &str = include_str!("../embedded_plugins/FGL_Net_EN.rb");
 const FGL_BATTLE_MP3: &[u8] = include_bytes!("../embedded_plugins/FGL_Battle.mp3");
+// Source UNIQUE: fangames/InfiniteFusion/plugins/FGL_RemotePlayer_Test.rb (pas de copie parallele a editer)
+const FGL_REMOTE_PLAYER_TEST_RB: &str = include_str!("../../../fangames/InfiniteFusion/plugins/FGL_RemotePlayer_Test.rb");
 
 fn fangames_plugins_dir() -> PathBuf {
     launcher_fangames_root().join("InfiniteFusion").join("plugins")
@@ -963,6 +965,14 @@ pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, St
     std::fs::write(audio_dest.join("FGL_Battle.mp3"), FGL_BATTLE_MP3)
         .map_err(|e| format!("write mp3: {}", e))?;
     installed.push("FGL_Battle.mp3".into());
+
+    // Prototype test: deploie automatiquement dans Data/Scripts/052_AddOns
+    {
+        let dst = plugin_dest.join("FGL_RemotePlayer_Test.rb");
+        std::fs::write(&dst, FGL_REMOTE_PLAYER_TEST_RB)
+            .map_err(|e| format!("write FGL_RemotePlayer_Test.rb: {}", e))?;
+        installed.push("FGL_RemotePlayer_Test.rb".into());
+    }
 
     let (ok, missing) = check_plugins_on_disk(&root, &entry, lang_u);
     if !ok {
