@@ -598,6 +598,32 @@ const FGL_NET_FR_RB: &str = include_str!("../embedded_plugins/FGL_Net_FR.rb");
 const FGL_NET_EN_RB: &str = include_str!("../embedded_plugins/FGL_Net_EN.rb");
 const FGL_BATTLE_MP3: &[u8] = include_bytes!("../embedded_plugins/FGL_Battle.mp3");
 
+fn fangames_plugins_dir() -> PathBuf {
+    launcher_fangames_root().join("InfiniteFusion").join("plugins")
+}
+
+fn plugin_bytes_from_fangames(filename: &str) -> Result<Vec<u8>, String> {
+    let path = fangames_plugins_dir().join(filename);
+    if !path.is_file() {
+        return Err(format!(
+            "plugin source manquant: {} (attendu sous fangames/InfiniteFusion/plugins)",
+            path.display()
+        ));
+    }
+    std::fs::read(&path).map_err(|e| format!("lecture {}: {}", path.display(), e))
+}
+
+fn plugin_src_lang(base: &str, lang: &str) -> Result<String, String> {
+    let name = format!("{}_{}.rb", base, lang);
+    match plugin_bytes_from_fangames(&name) {
+        Ok(bytes) => String::from_utf8(bytes).map_err(|e| e.to_string()),
+        Err(_disk_err) => {
+            let s = embedded_plugin_src(base, lang)?;
+            Ok(s.to_string())
+        }
+    }
+}
+
 fn embedded_plugin_src(base: &str, lang: &str) -> Result<&'static str, String> {
     match (base, lang) {
         ("FGL_Battle", "FR") => Ok(FGL_BATTLE_FR_RB),
@@ -908,10 +934,24 @@ pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, St
     let mut installed = Vec::new();
     for base in &plugins {
         let _ = std::fs::remove_file(plugin_dest.join(format!("{}_{}.rb", base, other)));
-        let src = embedded_plugin_src(base, lang_u)?;
+        let src = plugin_src_lang(base, lang_u)?;
         let dst = plugin_dest.join(format!("{}_{}.rb", base, lang_u));
-        std::fs::write(&dst, src).map_err(|e| format!("write {}: {}", base, e))?;
+        std::fs::write(&dst, src.as_bytes()).map_err(|e| format!("write {}: {}", base, e))?;
         installed.push(format!("{}_{}.rb", base, lang_u));
+    }
+    {
+        let name = "FGL_RemotePlayer_Test.rb";
+        match plugin_bytes_from_fangames(name) {
+            Ok(bytes) => {
+                let dst = plugin_dest.join(name);
+                std::fs::write(&dst, &bytes)
+                    .map_err(|e| format!("write {}: {}", name, e))?;
+                installed.push(name.to_string());
+            }
+            Err(e) => {
+                eprintln!("[FGL] skip {}: {}", name, e);
+            }
+        }
     }
 
     let audio_dest = if entry.audio_dest.is_empty() {
