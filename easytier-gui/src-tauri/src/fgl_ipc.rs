@@ -7,6 +7,13 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
+fn extract_seq(payload: &str) -> u64 {
+    let body = payload.strip_prefix("PLAYER|").unwrap_or(payload);
+    body.rsplit('|')
+        .next()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+}
 
 fn fgl_trace(msg: &str) {
     use std::io::Write;
@@ -19,6 +26,7 @@ fn fgl_trace(msg: &str) {
         let _ = writeln!(f, "{}", msg);
     }
 }
+
 pub struct IpcState {
     pub socket: Mutex<Option<Arc<UdpSocket>>>,
     pub port: Mutex<u16>,
@@ -39,8 +47,8 @@ impl Default for IpcState {
     }
 }
 
-
 pub async fn deliver_to_game(state: &IpcState, payload: &str) -> Result<(), String> {
+    let seq = extract_seq(payload);
     let sock = {
         let g = state.socket.lock().await;
         g.as_ref()
@@ -50,15 +58,26 @@ pub async fn deliver_to_game(state: &IpcState, payload: &str) -> Result<(), Stri
     let addr_opt = *state.game_addr.lock().await;
     if let Some(addr) = addr_opt {
         state.inbox.lock().await.push_back(payload.to_string());
-        sock.send_to(payload.as_bytes(), addr)
-            .await
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        match sock.send_to(payload.as_bytes(), addr).await {
+            Ok(_) => {
+                fgl_trace(&format!("TX_IPC seq={} to={}", seq, addr));
+                Ok(())
+            }
+            Err(e) => {
+                fgl_trace(&format!("TX_IPC_ERROR seq={} to={} err={}", seq, addr, e));
+                Err(e.to_string())
+            }
+        }
     } else {
         let mut q = state.pending.lock().await;
         if q.len() < 256 {
             q.push_back(payload.to_string());
         }
+        fgl_trace(&format!(
+            "TX_IPC_ERROR seq={} err=no_game_addr queued={}",
+            seq,
+            q.len()
+        ));
         Ok(())
     }
 }
@@ -66,9 +85,17 @@ pub async fn deliver_to_game(state: &IpcState, payload: &str) -> Result<(), Stri
 async fn flush_pending(state: &IpcState, sock: &UdpSocket, addr: std::net::SocketAddr) {
     let mut q = state.pending.lock().await;
     while let Some(msg) = q.pop_front() {
-        let _ = sock.send_to(msg.as_bytes(), addr).await;
+        let seq = extract_seq(&msg);
+        match sock.send_to(msg.as_bytes(), addr).await {
+            Ok(_) => fgl_trace(&format!("TX_IPC seq={} to={} (flush_pending)", seq, addr)),
+            Err(e) => fgl_trace(&format!(
+                "TX_IPC_ERROR seq={} to={} err={} (flush_pending)",
+                seq, addr, e
+            )),
+        }
     }
 }
+
 #[tauri::command]
 pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result<u16, String> {
     let mut guard = state.socket.lock().await;
@@ -113,6 +140,8 @@ pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result
                     let Ok(txt) = std::str::from_utf8(&buf[..n]) else {
                         continue;
                     };
+                    let seq = extract_seq(txt);
+                    fgl_trace(&format!("RX_IPC seq={} from={} bytes={}", seq, from, n));
                     let _ = app2.emit(
                         "fgl_from_game",
                         serde_json::json!({
@@ -121,7 +150,11 @@ pub async fn fgl_ipc_start(app: AppHandle, state: State<'_, IpcState>) -> Result
                             "port": from.port(),
                         }),
                     );
-                    fgl_trace(&format!("[PLAYER OUT IPC] bytes={} raw={:.80}", txt.len(), txt));
+                    fgl_trace(&format!(
+                        "[PLAYER OUT IPC] bytes={} raw={:.80}",
+                        txt.len(),
+                        txt
+                    ));
                     if let Some(link) = app2.try_state::<crate::fgl_link::LinkState>() {
                         let _ = crate::fgl_link::relay_player(&link, txt).await;
                     }

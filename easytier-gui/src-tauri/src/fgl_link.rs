@@ -11,6 +11,13 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
+fn extract_seq(payload: &str) -> u64 {
+    let body = payload.strip_prefix("PLAYER|").unwrap_or(payload);
+    body.rsplit('|')
+        .next()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+}
 
 fn fgl_trace(msg: &str) {
     use std::io::Write;
@@ -23,6 +30,7 @@ fn fgl_trace(msg: &str) {
         let _ = writeln!(f, "{}", msg);
     }
 }
+
 fn discovery_port(network: &str) -> u16 {
     let mut h: u32 = 2166136261;
     for b in network.as_bytes() {
@@ -99,12 +107,6 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
                         continue;
                     };
 
-                    // Bootstrap FGL_Link:
-                    // - apprendre endpoints[from.ip()] = pkt.reply_port (port DATA distant)
-                    // - si ce n'est pas deja un announce, repondre sur ip:reply_port
-                    //   pour que le pair apprenne NOTRE port DATA (via notre reply_port)
-                    // - kind "announce" => pas de reponse (coupe la boucle)
-                    // - kind "announce" n'est jamais livre a FGL_Net (seul "player" l'est)
                     if let Some(link) = app.try_state::<LinkState>() {
                         let remote_data = pkt.reply_port;
                         if remote_data > 0 {
@@ -130,7 +132,6 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
                                     list.push(ip);
                                 }
                             }
-                            // Reponse bootstrap: player/autre -> announce ; announce -> silence
                             if pkt.kind != "announce" {
                                 let my_port = *link.port.lock().await;
                                 let sock_data = {
@@ -179,9 +180,22 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
                             } else {
                                 format!("PLAYER|{}", pkt.payload)
                             };
-                            fgl_trace(&format!("[PLAYER IN LINK] from={} kind=player bytes={}", pkt.from, line.len()));
-                            let _ = crate::fgl_ipc::deliver_to_game(&ipc, &line).await;
-                            fgl_trace("[PLAYER IN IPC] delivered");
+                            let seq = extract_seq(&line);
+                            fgl_trace(&format!(
+                                "RX_EASYTIER seq={} from={} bytes={}",
+                                seq,
+                                pkt.from,
+                                line.len()
+                            ));
+                            fgl_trace(&format!(
+                                "[PLAYER IN LINK] from={} kind=player bytes={}",
+                                pkt.from,
+                                line.len()
+                            ));
+                            // TX_IPC logge UNIQUEMENT dans deliver_to_game si send OK
+                            if let Err(e) = crate::fgl_ipc::deliver_to_game(&ipc, &line).await {
+                                fgl_trace(&format!("TX_IPC_ERROR seq={} err={}", seq, e));
+                            }
                         }
                     }
 
@@ -203,18 +217,22 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>) {
     });
 }
 
-
 /// Appele depuis fgl_ipc: PLAYER local -> autres launchers.
 pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
+    let seq = extract_seq(payload);
     let my_port = *state.port.lock().await;
     if my_port == 0 {
+        fgl_trace(&format!("TX_EASYTIER_ERROR seq={} err=link_port_0", seq));
         return 0;
     }
     let sock = {
         let g = state.sock.lock().await;
         match g.as_ref() {
             Some(s) => s.clone(),
-            None => return 0,
+            None => {
+                fgl_trace(&format!("TX_EASYTIER_ERROR seq={} err=no_sock", seq));
+                return 0;
+            }
         }
     };
     let pseudo = state.my_pseudo.lock().await.clone();
@@ -228,6 +246,7 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
         ts: now_ts(),
     };
     let Ok(data) = serde_json::to_vec(&pkt) else {
+        fgl_trace(&format!("TX_EASYTIER_ERROR seq={} err=serialize", seq));
         return 0;
     };
     let peers = state.peer_ips.lock().await.clone();
@@ -242,29 +261,70 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
                 match sock.send_to(&data, SocketAddr::new(ip, port)).await {
                     Ok(_) => {
                         sent += 1;
+                        fgl_trace(&format!("TX_EASYTIER seq={} ip={} port={}", seq, ip, port));
                         fgl_trace(&format!("[PLAYER OUT LINK PEER] ip={} port={}", ip, port));
                     }
-                    Err(e) => fgl_trace(&format!("[PLAYER OUT LINK PEER FAIL] ip={} port={} err={}", ip, port, e)),
+                    Err(e) => {
+                        fgl_trace(&format!(
+                            "TX_EASYTIER_ERROR seq={} ip={} port={} err={}",
+                            seq, ip, port, e
+                        ));
+                        fgl_trace(&format!(
+                            "[PLAYER OUT LINK PEER FAIL] ip={} port={} err={}",
+                            ip, port, e
+                        ));
+                    }
                 }
             }
         } else {
+            fgl_trace(&format!(
+                "TX_EASYTIER_ERROR seq={} ip={} err=no_endpoint",
+                seq, ip
+            ));
             fgl_trace(&format!("[PLAYER OUT LINK PEER] ip={} no endpoint", ip));
         }
         match sock.send_to(&data, SocketAddr::new(ip, dport)).await {
             Ok(_) => {
                 sent += 1;
-                fgl_trace(&format!("[PLAYER OUT LINK DISCOVERY] ip={} port={}", ip, dport));
+                fgl_trace(&format!(
+                    "TX_EASYTIER seq={} ip={} port={} (discovery)",
+                    seq, ip, dport
+                ));
+                fgl_trace(&format!(
+                    "[PLAYER OUT LINK DISCOVERY] ip={} port={}",
+                    ip, dport
+                ));
             }
-            Err(e) => fgl_trace(&format!("[PLAYER OUT LINK DISCOVERY FAIL] ip={} port={} err={}", ip, dport, e)),
+            Err(e) => {
+                fgl_trace(&format!(
+                    "TX_EASYTIER_ERROR seq={} ip={} port={} err={} (discovery)",
+                    seq, ip, dport, e
+                ));
+                fgl_trace(&format!(
+                    "[PLAYER OUT LINK DISCOVERY FAIL] ip={} port={} err={}",
+                    ip, dport, e
+                ));
+            }
         }
     }
-    if sent > 0 {
-        fgl_trace(&format!("[PLAYER OUT LINK] peers={} sent={}", n_peers, sent));
+    if sent == 0 {
+        fgl_trace(&format!(
+            "TX_EASYTIER_ERROR seq={} err=no_send peers={} eps={}",
+            seq, n_peers, n_eps
+        ));
+        fgl_trace(&format!(
+            "[PLAYER OUT LINK] no send peers={} eps={}",
+            n_peers, n_eps
+        ));
     } else {
-        fgl_trace(&format!("[PLAYER OUT LINK] no send peers={} eps={}", n_peers, n_eps));
+        fgl_trace(&format!(
+            "[PLAYER OUT LINK] peers={} sent={}",
+            n_peers, sent
+        ));
     }
     sent
 }
+
 #[tauri::command]
 pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Result<u16, String> {
     {
@@ -292,7 +352,6 @@ pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Resu
 
     spawn_reader(app.clone(), sock).await;
 
-    // Bootstrap: ecoute discovery_port si libre (2e instance meme PC: skip OK)
     let dport = discovery_port("fangame");
     match UdpSocket::bind(("0.0.0.0", dport)).await {
         Ok(ds) => {
@@ -329,7 +388,6 @@ pub async fn fgl_link_set_peers(
     state: State<'_, LinkState>,
     ips: Vec<String>,
 ) -> Result<(), String> {
-    // Merge: ajoute les IPs, ne retire pas les endpoints deja appris
     let mut list = state.peer_ips.lock().await.clone();
     for s in ips {
         if let Some(ip) = parse_ip(&s) {
@@ -357,7 +415,6 @@ pub async fn fgl_link_remember(
     };
     state.endpoints.lock().await.insert(ip, port);
     fgl_trace(&format!("[PEER REMEMBER] ip={} port={}", ip, port));
-    // garder l'IP dans peer_ips aussi
     let mut list = state.peer_ips.lock().await;
     if !list.contains(&ip) {
         list.push(ip);
