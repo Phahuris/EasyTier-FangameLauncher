@@ -1,62 +1,7 @@
 # FGL_Net v1 — FR
 
-# FGL IPC only — no peer files, no REMOVED directory
-module FGL_IPC
-  @sock = nil
-  def self.port
-    p = ENV["FGL_IPC_PORT"].to_s.to_i
-    return 0 if p < 1 || p > 65535
-    p
-  end
-  def self.ensure_sock
-    return if @sock
-    begin
-      require "socket"
-      @sock = UDPSocket.new
-      @sock.bind("127.0.0.1", 0)
-    rescue
-      @sock = nil
-    end
-  end
-  def self.send_player_line(line)
-    p = port
-    return if p <= 0
-    ensure_sock
-    return unless @sock
-    begin
-      @sock.send("PLAYER|" + line.to_s, 0, "127.0.0.1", p)
-    rescue
-    end
-  end
-  def self.poll
-    ensure_sock
-    return [] unless @sock
-    out = []
-    32.times do
-      begin
-        if @sock.respond_to?(:recvfrom_nonblock)
-          data, _ = @sock.recvfrom_nonblock(65535)
-          if data
-            s = data.to_s
-            out << s
-            begin
-              FGL.dbg("[FGL IPC IN] bytes=#{s.bytesize} raw=#{s[0, 120]}") if defined?(FGL)
-            rescue
-            end
-          end
-        else
-          break
-        end
-      rescue Errno::EAGAIN, Errno::EWOULDBLOCK
-        break
-      rescue
-        break
-      end
-    end
-    out
-  end
-end
 module FGL
+  DIR = "FGL_peers"
   TICK = 0.05
   STALE_KILL = 1800.0
   FW = 80
@@ -72,20 +17,13 @@ module FGL
 
   def self.log(msg); end
 
-  # --- TEMP DEBUG (diag only) ---
-  def self.dbg(msg)
-    begin
-      path = File.join(ENV["TEMP"] || ENV["TMP"] || ".", "fgl_ruby_trace.log")
-      File.open(path, "a") { |f| f.puts("[#{Time.now.strftime("%H:%M:%S")}] #{msg}") }
-    rescue
-    end
-  end
-  # --- END TEMP DEBUG ---
-
   def self.ensure_id
     return if @my_id
     @my_id = "#{Time.now.to_i}_#{rand(999999)}"
-    
+    begin
+      Dir.mkdir(DIR) unless File.directory?(DIR)
+    rescue
+    end
   end
 
   def self.map_id
@@ -480,63 +418,68 @@ module FGL
       clothes, hair, hat, hat2, cc, hc, htc, h2c, skin, state, surfmon, bike_col, Time.now.to_i
     ].join("|")
     begin
-      FGL_IPC.send_player_line(line) rescue nil  # no peer files
+      File.open(File.join(DIR, "#{@my_id}.txt"), "wb") { |f| f.write(line) }
     rescue
     end
   end
 
   def self.read_others
     ensure_id
+    return unless File.directory?(DIR)
     seen = {}
-    begin
-      FGL_IPC.poll.each do |raw|
-        s = raw.to_s
-        s = s[7, s.length - 7] if s.index("PLAYER|") == 0
-        a = s.strip.split("|")
-        next if a.size < 7
-        id = a[0].to_s
-        next if id.empty? || id == @my_id
-        next if a[1].to_s != "P" && a[1].to_s != ""
-        seen[id] = true
-        dbg("[FGL PLAYER PARSED] id=#{id} map=#{a[2]} x=#{a[3]} y=#{a[4]} dir=#{a[5]} pname=#{a.size > 16 ? a[16] : "?"}")
-        data = {
-          :map => a[2].to_i, :x => a[3].to_i, :y => a[4].to_i, :dir => a[5].to_i,
-          :cname => clean_name(a[6]), :speed => a[7].to_i, :pattern => a[8].to_i,
-          :action => (a.size > 15 ? safe_text(a[15]) : ""),
-          :pname => (a.size > 16 ? safe_text(a[16]) : "Player"),
-          :clothes => (a.size > 17 ? safe_text(a[17]) : ""),
-          :hair => (a.size > 18 ? safe_text(a[18]) : ""),
-          :hat => (a.size > 19 ? safe_text(a[19]) : ""),
-          :hat2 => (a.size > 20 ? safe_text(a[20]) : ""),
-          :cc => (a.size > 21 ? a[21].to_i : 0),
-          :hc => (a.size > 22 ? a[22].to_i : 0),
-          :htc => (a.size > 23 ? a[23].to_i : 0),
-          :h2c => (a.size > 24 ? a[24].to_i : 0),
-          :skin => (a.size > 25 ? a[25].to_i : 0),
-          :state => (a.size > 26 ? a[26].to_i : 0),
-          :surfmon => (a.size > 27 ? safe_text(a[27]) : ""),
-          :bike_col => (a.size > 28 ? a[28].to_i : 0)
-        }
-        data[:pname] = "Player" if data[:pname].to_s.empty?
-        if !@players[id]
-          dbg("[FGL PLAYER STORED] id=#{id} (new)")
-          @players[id] = data.merge(
-            :sprite => nil, :hair_spr => nil, :hat_spr => nil, :hat2_spr => nil,
-            :bike_spr => nil, :surf_sprite => nil, :surf_anim => nil,
-            :label_name => nil, :label_action => nil,
-            :owned_bmp => nil, :hair_bmp => nil, :hat_bmp => nil, :hat2_bmp => nil, :bike_bmp => nil,
-            :label_name_bmp => nil, :label_action_bmp => nil,
-            :label_key => nil, :bound_map_id => nil, :last_outfit_key => nil,
-            :frozen_sx => nil, :frozen_sy => nil, :miss => 0
-          )
-        else
-          rec = @players[id]
-          data.each { |k, v| rec[k] = v }
-          rec[:miss] = 0
-          dbg("[FGL PLAYER STORED] id=#{id} (update) x=#{rec[:x]} y=#{rec[:y]}")
-        end
+    nowt = Time.now
+    Dir.foreach(DIR) do |fn|
+      next if fn == "." || fn == ".." || fn[-4, 4] != ".txt"
+      id = fn[0, fn.length - 4]
+      next if id == @my_id
+      next if id =~ /^(chal|chal_ans|chalresp|trd_|bat_|party_)/i
+      path = File.join(DIR, fn)
+      begin
+        next if (nowt - File.mtime(path)) > STALE_KILL
+      rescue
+        next
       end
-    rescue
+      raw = nil
+      begin
+        File.open(path, "rb") { |f| raw = f.read }
+      rescue
+        next
+      end
+      next if !raw || raw.empty?
+      a = raw.strip.split("|")
+      next if a.size < 7
+      next if a[1].to_s != "P" && a[1].to_s != ""
+      seen[id] = true
+      data = {
+        :map => a[2].to_i, :x => a[3].to_i, :y => a[4].to_i, :dir => a[5].to_i,
+        :cname => clean_name(a[6]), :speed => a[7].to_i, :pattern => a[8].to_i,
+        :action => (a.size > 15 ? safe_text(a[15]) : ""),
+        :pname => (a.size > 16 ? safe_text(a[16]) : "Joueur"),
+        :clothes => (a.size > 17 ? safe_text(a[17]) : ""),
+        :hair => (a.size > 18 ? safe_text(a[18]) : ""),
+        :hat => (a.size > 19 ? safe_text(a[19]) : ""),
+        :hat2 => (a.size > 20 ? safe_text(a[20]) : ""),
+        :cc => (a.size > 21 ? a[21].to_i : 0),
+        :hc => (a.size > 22 ? a[22].to_i : 0),
+        :htc => (a.size > 23 ? a[23].to_i : 0),
+        :h2c => (a.size > 24 ? a[24].to_i : 0),
+        :skin => (a.size > 25 ? a[25].to_i : 0),
+        :state => (a.size > 26 ? a[26].to_i : 0),
+        :surfmon => (a.size > 27 ? safe_text(a[27]) : ""),
+        :bike_col => (a.size > 28 ? a[28].to_i : 0)
+      }
+      data[:pname] = "Joueur" if data[:pname].empty?
+      if !@players[id]
+        @players[id] = data.merge(
+          :sprite => nil, :hair_spr => nil, :hat_spr => nil, :hat2_spr => nil,
+          :bike_spr => nil, :surf_sprite => nil,
+          :label_name => nil, :label_action => nil, :label_key => nil,
+          :bound_map_id => nil, :miss => 0, :last_outfit_key => nil,
+          :frozen_sx => nil, :frozen_sy => nil
+        )
+      else
+        @players[id].merge!(data)
+      end
     end
     @players.keys.each do |id|
       if !seen[id]
@@ -544,10 +487,10 @@ module FGL
         kill(id) if @players[id][:miss] > 600
       else
         @players[id][:miss] = 0
-        dbg("[FGL READ OTHERS] id=#{id} miss=0 players=#{@players.size}")
       end
     end
   end
+
   def self.build_body_bitmap(rec)
     action = state_to_action(rec[:state], rec[:cname])
     begin
@@ -648,23 +591,19 @@ module FGL
     return if id.to_s == (@my_id.to_s rescue "")
     rec = @players[id]
     return unless rec
-    dbg("[FGL ENSURE] id=#{id} map=#{rec[:map]} x=#{rec[:x]} y=#{rec[:y]}")
     begin
       return unless $game_map && $scene.is_a?(Scene_Map)
     rescue
-      dbg("[FGL ENSURE] id=#{id} SKIP not Scene_Map")
       return
     end
     remote_mid = rec[:map].to_i
     tmap = target_map_for(remote_mid)
     if tmap.nil?
-      dbg("[FGL ENSURE] id=#{id} SKIP tmap nil remote_mid=#{remote_mid}")
       destroy_player_visuals(rec) if rec[:sprite]
       return
     end
     rec[:_tmap] = tmap
     v = vp
-    dbg("[FGL VP] id=#{id} vp=#{v.nil? ? "nil" : v.class.name}")
     return if v.nil?
 
     action = state_to_action(rec[:state], rec[:cname])
@@ -687,20 +626,19 @@ module FGL
     if need
       destroy_player_visuals(rec)
       body = build_body_bitmap(rec)
-      dbg("[FGL BODY BITMAP] id=#{id} body=#{body.nil? ? "nil" : "ok #{body.width}x#{body.height}"}")
       return if body.nil?
 
       s = make_layer_sprite(v, body, 100)
       begin
         s.ox = FW / 2
         s.oy = FH
+        dir = rec[:dir].to_i; dir = 2 if dir <= 0
         pat = rec[:pattern].to_i
-        s.src_rect.set(pat * FW, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2 * FH, FW, FH)
+        s.src_rect.set(pat * FW, ((dir - 2) / 2) * FH, FW, FH)
       rescue
       end
       rec[:sprite] = s
       rec[:owned_bmp] = body
-      dbg("[FGL SPRITE CREATED] id=#{id} sprite=#{s.nil? ? "nil" : s.class.name}")
 
       if defined?(getOverworldHairFilename) && rec[:hair].to_s != "" && rec[:hair].to_s != "0"
         hp = getOverworldHairFilename(rec[:hair]) rescue nil
@@ -759,8 +697,9 @@ module FGL
           begin
             cw = sb.width / 4
             ch = sb.height / 4
+            dir = rec[:dir].to_i; dir = 2 if dir <= 0
             pat = rec[:pattern].to_i
-            ss.src_rect.set(pat * cw, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2 * ch, cw, ch)
+            ss.src_rect.set(pat * cw, ((dir - 2) / 2) * ch, cw, ch)
             ss.ox = cw / 2
             ss.oy = ch - 16
           rescue
@@ -779,8 +718,6 @@ module FGL
   def self.update_sprite_pos(rec)
     s = rec[:sprite]
     return unless s
-    dir = rec[:dir].to_i
-    dir = 2 if dir <= 0
     locked = ui_locks_peers?
     if locked && rec[:frozen_sx] && rec[:frozen_sy]
       sx = rec[:frozen_sx]
@@ -797,13 +734,13 @@ module FGL
       end
     end
     begin
+      dir = rec[:dir].to_i; dir = 2 if dir <= 0
       pat = rec[:pattern].to_i
       action = state_to_action(rec[:state], rec[:cname])
       body_sy = sy
       body_sy = sy + 16 if action == "surf" || action == "dive"
       s.x = sx
       s.y = body_sy
-      dbg("[FGL SPRITE POSITION] id=#{rec[:pname]} x=#{sx} y=#{body_sy} dir=#{dir}")
       base_z = calc_z(sy, rec[:y])
       mon_bob = 0
       begin
@@ -829,7 +766,7 @@ module FGL
         if ss.bitmap
           cw = ss.bitmap.width / 4
           ch = ss.bitmap.height / 4
-          ss.src_rect.set(pat * cw, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2 * ch, cw, ch)
+          ss.src_rect.set(pat * cw, ((dir - 2) / 2) * ch, cw, ch)
           ss.ox = cw / 2
           ss.oy = ch - 16
           ss.oy -= mon_bob if mon_bob != 0
@@ -845,7 +782,7 @@ module FGL
         bs.ox = s.ox
         bs.oy = s.oy
         if bs.bitmap
-          bs.src_rect.set(pat * FW, ((rec[:dir].to_i <= 0 ? 2 : rec[:dir].to_i) - 2) / 2 * FH, FW, FH)
+          bs.src_rect.set(pat * FW, ((dir - 2) / 2) * FH, FW, FH)
         end
         bs.z = base_z - 1
         apply_tint(bs)
