@@ -27,6 +27,7 @@ rfd = "0.15"
 
 easytier = { path = "../../easytier" }
 tokio = { version = "1", features = ["full"] }
+socket2 = "0.5"
 anyhow = "1.0"
 chrono = { version = "0.4.37", features = ["serde"] }
 

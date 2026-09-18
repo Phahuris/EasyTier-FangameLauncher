@@ -1,9 +1,10 @@
-//! FGL_Link — bootstrap endpoint + TOUS les logs sur le Bureau
+//! FGL_Link — bootstrap endpoint : REUSEADDR discovery + registre ports locaux Bureau
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
@@ -18,7 +19,6 @@ fn extract_seq(payload: &str) -> u64 {
 
 fn fgl_trace(msg: &str) {
     use std::io::Write;
-    // Bureau UNIQUEMENT (pas TEMP)
     let path = std::env::var("USERPROFILE")
         .ok()
         .map(|u| std::path::PathBuf::from(u).join("Desktop").join("fgl_player_trace.log"))
@@ -39,6 +39,41 @@ fn discovery_port(network: &str) -> u16 {
         h = h.wrapping_mul(16777619);
     }
     40000 + (h % 20000) as u16
+}
+
+fn local_ports_path() -> std::path::PathBuf {
+    std::env::var("USERPROFILE")
+        .ok()
+        .map(|u| std::path::PathBuf::from(u).join("Desktop").join("fgl_link_local_ports.txt"))
+        .unwrap_or_else(|| std::env::temp_dir().join("fgl_link_local_ports.txt"))
+}
+
+/// Écrit / met a jour mon data_port dans le registre local (meme PC).
+fn register_local_port(my_port: u16) {
+    if my_port == 0 {
+        return;
+    }
+    let path = local_ports_path();
+    let mut set = read_local_ports();
+    set.insert(my_port);
+    let body: String = set.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n");
+    let _ = std::fs::write(&path, body);
+    fgl_trace(&format!("LOCAL_PORT_REGISTER port={} path={:?}", my_port, path));
+}
+
+fn read_local_ports() -> std::collections::BTreeSet<u16> {
+    let mut set = std::collections::BTreeSet::new();
+    let path = local_ports_path();
+    if let Ok(txt) = std::fs::read_to_string(&path) {
+        for line in txt.lines() {
+            if let Ok(p) = line.trim().parse::<u16>() {
+                if p > 0 {
+                    set.insert(p);
+                }
+            }
+        }
+    }
+    set
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -63,6 +98,7 @@ pub struct LinkState {
     pub endpoints: Mutex<HashMap<IpAddr, u16>>,
     pub my_pseudo: Mutex<String>,
     pub discovery_bound: Mutex<bool>,
+    pub last_bootstrap: Mutex<Option<Instant>>,
 }
 
 impl Default for LinkState {
@@ -74,6 +110,7 @@ impl Default for LinkState {
             endpoints: Mutex::new(HashMap::new()),
             my_pseudo: Mutex::new(String::new()),
             discovery_bound: Mutex::new(false),
+            last_bootstrap: Mutex::new(None),
         }
     }
 }
@@ -262,7 +299,7 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>, label: &str) {
                                     fgl_trace("PEER_REPLY_SKIP err=no_sock");
                                 }
                             } else {
-                                fgl_trace("PEER_REPLY_SKIP kind=announce");
+                                fgl_trace("PEER_REPLY_SKIP kind=announce (no auto-reply loop)");
                             }
                         } else {
                             fgl_trace(&format!(
@@ -403,11 +440,25 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
 }
 
 async fn bootstrap_announce(state: &LinkState) {
+    // Debounce 2s — evite le spam set_peers / announce
+    {
+        let mut last = state.last_bootstrap.lock().await;
+        if let Some(t) = *last {
+            if t.elapsed() < Duration::from_secs(2) {
+                fgl_trace("BOOTSTRAP_ANNOUNCE_SKIP debounce");
+                return;
+            }
+        }
+        *last = Some(Instant::now());
+    }
+
     let my_port = *state.port.lock().await;
     if my_port == 0 {
         fgl_trace("BOOTSTRAP_ANNOUNCE_SKIP err=my_port_0");
         return;
     }
+    register_local_port(my_port);
+
     let sock = {
         let g = state.sock.lock().await;
         match g.as_ref() {
@@ -422,25 +473,70 @@ async fn bootstrap_announce(state: &LinkState) {
     let peers = state.peer_ips.lock().await.clone();
     let eps = state.endpoints.lock().await.clone();
     let dport = discovery_port("fangame");
+    let local_ports = read_local_ports();
     fgl_trace(&format!(
-        "BOOTSTRAP_ANNOUNCE my_port={} peers={:?} endpoints={:?} dport={}",
-        my_port, peers, eps, dport
+        "BOOTSTRAP_ANNOUNCE my_port={} peers={:?} endpoints={:?} dport={} local_ports={:?}",
+        my_port, peers, eps, dport, local_ports
     ));
-    for ip in peers {
-        for dest in dest_addrs(ip, dport) {
+
+    // 1) Discovery (ET + loopback)
+    for ip in &peers {
+        for dest in dest_addrs(*ip, dport) {
             fgl_trace(&format!("BOOTSTRAP_TX discovery dest={}", dest));
             send_announce_to(&sock, dest, &pseudo, my_port).await;
         }
-        if let Some(&port) = eps.get(&ip) {
+        if let Some(&port) = eps.get(ip) {
             if port > 0 {
-                for dest in dest_addrs(ip, port) {
+                for dest in dest_addrs(*ip, port) {
                     fgl_trace(&format!("BOOTSTRAP_TX data dest={}", dest));
                     send_announce_to(&sock, dest, &pseudo, my_port).await;
                 }
             }
         }
     }
+
+    // 2) Meme PC : ports data locaux connus (registre Bureau)
+    for &p in &local_ports {
+        if p == my_port {
+            continue;
+        }
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), p);
+        fgl_trace(&format!("BOOTSTRAP_TX local_data dest={}", dest));
+        send_announce_to(&sock, dest, &pseudo, my_port).await;
+        for ip in &peers {
+            if ip.is_loopback() {
+                continue;
+            }
+            let d = SocketAddr::new(*ip, p);
+            fgl_trace(&format!("BOOTSTRAP_TX local_data_et dest={}", d));
+            send_announce_to(&sock, d, &pseudo, my_port).await;
+        }
+    }
+
     fgl_trace("BOOTSTRAP_ANNOUNCE_DONE");
+}
+
+/// Bind UDP avec SO_REUSEADDR (Windows: plusieurs process peuvent partager discovery).
+async fn bind_udp_reuse(addr: SocketAddr) -> Result<UdpSocket, String> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))
+        .map_err(|e| format!("socket new: {e}"))?;
+    socket
+        .set_reuse_address(true)
+        .map_err(|e| format!("reuse_address: {e}"))?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|e| format!("nonblocking: {e}"))?;
+    socket
+        .bind(&addr.into())
+        .map_err(|e| format!("bind {addr}: {e}"))?;
+    let std_sock: std::net::UdpSocket = socket.into();
+    UdpSocket::from_std(std_sock).map_err(|e| format!("from_std: {e}"))
 }
 
 #[tauri::command]
@@ -464,6 +560,7 @@ pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Resu
     println!("[FGL_LINK] data 0.0.0.0:{port}");
     fgl_trace(&format!("LINK_LISTEN data_port={}", port));
     *state.port.lock().await = port;
+    register_local_port(port);
     let sock = Arc::new(sock);
     {
         let mut guard = state.sock.lock().await;
@@ -473,16 +570,20 @@ pub async fn fgl_link_start(app: AppHandle, state: State<'_, LinkState>) -> Resu
     spawn_reader(app.clone(), sock, "data").await;
 
     let dport = discovery_port("fangame");
-    match UdpSocket::bind(("0.0.0.0", dport)).await {
+    let daddr = SocketAddr::from(([0, 0, 0, 0], dport));
+    match bind_udp_reuse(daddr).await {
         Ok(ds) => {
-            println!("[FGL_LINK] discovery 0.0.0.0:{dport}");
-            fgl_trace(&format!("LINK_LISTEN discovery_port={}", dport));
+            println!("[FGL_LINK] discovery 0.0.0.0:{dport} (reuse)");
+            fgl_trace(&format!("LINK_LISTEN discovery_port={} reuse=1", dport));
             *state.discovery_bound.lock().await = true;
             spawn_reader(app, Arc::new(ds), "discovery").await;
         }
         Err(e) => {
             println!("[FGL_LINK] discovery {dport} skip: {e}");
-            fgl_trace(&format!("LINK_LISTEN discovery_port={} SKIP err={}", dport, e));
+            fgl_trace(&format!(
+                "LINK_LISTEN discovery_port={} SKIP err={}",
+                dport, e
+            ));
             *state.discovery_bound.lock().await = false;
         }
     }
