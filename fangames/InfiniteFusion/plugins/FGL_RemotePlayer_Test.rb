@@ -34,6 +34,7 @@ module FGL_RemotePlayer_Test
       lines << "time=#{Time.now}"
       lines << "ipc_port=#{ipc_port}"
       lines << "my_id=#{@my_id}"
+      lines << "poll_raw=#{@poll_raw.to_i}"
       lines << "remotes=#{@remotes.size}"
       lines << "scene=#{$scene ? $scene.class.name : "nil"}"
       lines << "vp=#{map_viewport ? "ok" : "nil"}"
@@ -84,12 +85,20 @@ module FGL_RemotePlayer_Test
     out = []
     32.times do
       begin
-        if @sock.respond_to?(:recvfrom_nonblock)
-          data, _ = @sock.recvfrom_nonblock(65535)
-          out << data.to_s if data
-        else
-          break
+        ready = false
+        begin
+          if defined?(IO) && IO.respond_to?(:select)
+            r = IO.select([@sock], nil, nil, 0)
+            ready = r && r[0] && r[0].include?(@sock)
+          else
+            ready = true
+          end
+        rescue
+          ready = true
         end
+        break unless ready
+        data, _addr = @sock.recvfrom(65535)
+        out << data.to_s if data && data.to_s.length > 0
       rescue Errno::EAGAIN, Errno::EWOULDBLOCK
         break
       rescue
@@ -233,7 +242,9 @@ module FGL_RemotePlayer_Test
   def self.ingest_network
     ensure_id
     seen = {}
-    ipc_poll.each do |raw|
+    batch = ipc_poll
+    @poll_raw = (@poll_raw || 0) + batch.size
+    batch.each do |raw|
       data = parse_player_raw(raw)
       next unless data
       id = data[:id]
