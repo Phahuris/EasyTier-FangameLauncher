@@ -1,27 +1,52 @@
-# =============================================================================
-# FGL_RemotePlayer_Test.rb — PROTOTYPE EXPERIMENTAL (isolé)
-# =============================================================================
-# Objectif : simuler un joueur distant comme vrai Game_Character +
-#            Sprite_Character natif, via IPC launcher uniquement.
-#
-# - Ne modifie PAS FGL_Net / Trade / Battle
-# - Pas de FGL_peers
-# - map_id distant N'IMPOSE PAS la map locale (pas de téléport, pas de filtre
-#   d'affichage sur map_id)
-# - Supprimer ce fichier = fin du prototype
-# =============================================================================
+# FGL_RemotePlayer_Test.rb — prototype Game_Character + Sprite_Character + IPC
+# Source unique: fangames/InfiniteFusion/plugins/
+# map_id distant n impose PAS la map locale
 
 module FGL_RemotePlayer_Test
   TICK = 0.05
   STALE_MISS = 120
+  STATUS_EVERY = 30
 
   @sock = nil
   @my_id = nil
   @last = 0.0
   @remotes = {}
   @hooks_done = false
+  @status_n = 0
+  @last_err = ""
 
-  def self.log(_msg); end
+  def self.status_path
+    begin
+      desk = ENV["USERPROFILE"].to_s
+      return File.join(desk, "Desktop", "fgl_rpt_status.txt") if desk != ""
+    rescue
+    end
+    begin
+      return File.join(ENV["TEMP"].to_s, "fgl_rpt_status.txt")
+    rescue
+    end
+    "fgl_rpt_status.txt"
+  end
+
+  def self.write_status(extra = "")
+    begin
+      lines = []
+      lines << "time=#{Time.now}"
+      lines << "ipc_port=#{ipc_port}"
+      lines << "my_id=#{@my_id}"
+      lines << "remotes=#{@remotes.size}"
+      lines << "scene=#{$scene ? $scene.class.name : "nil"}"
+      lines << "vp=#{map_viewport ? "ok" : "nil"}"
+      lines << "err=#{@last_err}"
+      @remotes.each do |id, rec|
+        d = rec[:data]
+        lines << "remote id=#{id} map=#{d[:map]} x=#{d[:x]} y=#{d[:y]} dir=#{d[:dir]} spr=#{rec[:sprite] ? "yes" : "no"}"
+      end
+      lines << extra if extra.to_s != ""
+      File.open(status_path, "w") { |f| f.puts lines.join("\n") }
+    rescue
+    end
+  end
 
   def self.ipc_port
     p = ENV["FGL_IPC_PORT"].to_s.to_i
@@ -35,7 +60,8 @@ module FGL_RemotePlayer_Test
       require "socket"
       @sock = UDPSocket.new
       @sock.bind("127.0.0.1", 0)
-    rescue
+    rescue => e
+      @last_err = "sock:#{e}"
       @sock = nil
     end
   end
@@ -47,7 +73,8 @@ module FGL_RemotePlayer_Test
     return unless @sock
     begin
       @sock.send("PLAYER|" + line.to_s, 0, "127.0.0.1", p)
-    rescue
+    rescue => e
+      @last_err = "send:#{e}"
     end
   end
 
@@ -130,13 +157,24 @@ module FGL_RemotePlayer_Test
     return unless $game_player && $game_map
     ensure_id
     p = $game_player
-    cname = clean_name((p.character_name rescue "walk"))
-    px = p.x.to_i rescue 0
-    py = p.y.to_i rescue 0
-    pdir = p.direction.to_i rescue 2
-    pspeed = p.move_speed.to_i rescue 3
-    ppat = p.pattern.to_i rescue 0
-    mid = ($game_map.map_id rescue 0).to_i
+    cn = "walk"
+    begin
+      cn = p.character_name.to_s
+    rescue
+    end
+    cname = clean_name(cn)
+    px = 0
+    py = 0
+    pdir = 2
+    pspeed = 3
+    ppat = 0
+    mid = 0
+    begin; px = p.x.to_i; rescue; end
+    begin; py = p.y.to_i; rescue; end
+    begin; pdir = p.direction.to_i; rescue; end
+    begin; pspeed = p.move_speed.to_i; rescue; end
+    begin; ppat = p.pattern.to_i; rescue; end
+    begin; mid = $game_map.map_id.to_i; rescue; end
     pname = "Player"
     begin
       pname = safe_text($player.name) if defined?($player) && $player && $player.name
@@ -175,6 +213,23 @@ module FGL_RemotePlayer_Test
     }
   end
 
+  def self.ensure_sprite(rec)
+    return if rec[:sprite] && !(rec[:sprite].disposed? rescue true)
+    v = map_viewport
+    return unless v
+    return unless defined?(Sprite_Character)
+    begin
+      rec[:sprite] = Sprite_Character.new(v, rec[:char])
+      begin
+        rec[:sprite].visible = true
+      rescue
+      end
+    rescue => e
+      @last_err = "sprite:#{e}"
+      rec[:sprite] = nil
+    end
+  end
+
   def self.ingest_network
     ensure_id
     seen = {}
@@ -187,29 +242,14 @@ module FGL_RemotePlayer_Test
       if rec.nil?
         char = FGL_RemoteCharacter.new
         char.apply_net(data)
-        spr = nil
-        begin
-          v = map_viewport
-          if v && defined?(Sprite_Character)
-            spr = Sprite_Character.new(v, char)
-          end
-        rescue
-          spr = nil
-        end
-        @remotes[id] = { :char => char, :sprite => spr, :miss => 0, :data => data }
+        rec = { :char => char, :sprite => nil, :miss => 0, :data => data }
+        @remotes[id] = rec
+        ensure_sprite(rec)
       else
         rec[:char].apply_net(data)
         rec[:data] = data
         rec[:miss] = 0
-        if rec[:sprite].nil? || (rec[:sprite].disposed? rescue true)
-          begin
-            v = map_viewport
-            if v && defined?(Sprite_Character)
-              rec[:sprite] = Sprite_Character.new(v, rec[:char])
-            end
-          rescue
-          end
-        end
+        ensure_sprite(rec)
       end
     end
     @remotes.keys.each do |id|
@@ -237,11 +277,14 @@ module FGL_RemotePlayer_Test
         rec[:char].update if rec[:char].respond_to?(:update)
       rescue
       end
+      ensure_sprite(rec)
       begin
         if rec[:sprite] && !(rec[:sprite].disposed? rescue true)
           rec[:sprite].update
+          rec[:sprite].visible = true
         end
-      rescue
+      rescue => e
+        @last_err = "upd:#{e}"
       end
     end
   end
@@ -262,7 +305,8 @@ module FGL_RemotePlayer_Test
     @last = now
     begin
       write_local
-    rescue
+    rescue => e
+      @last_err = "write:#{e}"
     end
     begin
       return unless $scene.is_a?(Scene_Map)
@@ -271,17 +315,23 @@ module FGL_RemotePlayer_Test
     end
     begin
       ingest_network
-    rescue
+    rescue => e
+      @last_err = "ingest:#{e}"
     end
     begin
       update_sprites
-    rescue
+    rescue => e
+      @last_err = "sprites:#{e}"
+    end
+    @status_n += 1
+    if @status_n == 1 || (@status_n % STATUS_EVERY) == 0
+      write_status("tick=#{@status_n}")
     end
   end
 
   def self.install_hooks!
     return if @hooks_done
-    @hooks_done = true
+    ok = false
     begin
       if defined?(Graphics)
         meta = (class << Graphics; self; end)
@@ -297,8 +347,10 @@ module FGL_RemotePlayer_Test
             end
           end
         end
+        ok = true
       end
-    rescue
+    rescue => e
+      @last_err = "hookG:#{e}"
     end
     begin
       if defined?(Scene_Map) && Scene_Map.method_defined?(:update)
@@ -314,8 +366,10 @@ module FGL_RemotePlayer_Test
             end
           end
         end
+        ok = true
       end
-    rescue
+    rescue => e
+      @last_err = "hookS:#{e}"
     end
     begin
       if defined?(EventHandlers)
@@ -328,6 +382,8 @@ module FGL_RemotePlayer_Test
       end
     rescue
     end
+    @hooks_done = ok
+    write_status("hooks=#{ok}")
   end
 end
 
@@ -353,7 +409,6 @@ class FGL_RemoteCharacter < Game_Character
         @opacity = 255
         @blend_type = 0
         @tile_id = 0
-        @visible = true
       end
     end
     @net_id = nil
@@ -364,6 +419,7 @@ class FGL_RemoteCharacter < Game_Character
     @walk_anime = true
     @step_anime = false
     @direction_fix = false
+    @opacity = 255
   end
 
   def apply_net(data)
@@ -371,7 +427,6 @@ class FGL_RemoteCharacter < Game_Character
     @net_map_id = data[:map].to_i
     @net_pname = data[:pname].to_s
     @net_pname = "Player" if @net_pname.empty?
-
     nx = data[:x].to_i
     ny = data[:y].to_i
     ndir = data[:dir].to_i
@@ -381,7 +436,6 @@ class FGL_RemoteCharacter < Game_Character
     nspd = 3 if nspd <= 0
     ncname = data[:cname].to_s
     ncname = "walk" if ncname.empty?
-
     begin
       if respond_to?(:moveto)
         moveto(nx, ny)
@@ -400,7 +454,6 @@ class FGL_RemoteCharacter < Game_Character
       @x = nx
       @y = ny
     end
-
     @direction = ndir
     @pattern = npat
     @move_speed = nspd
