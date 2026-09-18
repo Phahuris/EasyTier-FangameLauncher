@@ -1,4 +1,4 @@
-//! FGL_Link — bootstrap endpoint : REUSEADDR discovery + registre ports locaux Bureau
+//! FGL_Link — anti self-echo + endpoints sticky (pas de map vers my_port)
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -48,7 +48,6 @@ fn local_ports_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join("fgl_link_local_ports.txt"))
 }
 
-/// Écrit / met a jour mon data_port dans le registre local (meme PC).
 fn register_local_port(my_port: u16) {
     if my_port == 0 {
         return;
@@ -58,7 +57,7 @@ fn register_local_port(my_port: u16) {
     set.insert(my_port);
     let body: String = set.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n");
     let _ = std::fs::write(&path, body);
-    fgl_trace(&format!("LOCAL_PORT_REGISTER port={} path={:?}", my_port, path));
+    fgl_trace(&format!("LOCAL_PORT_REGISTER port={}", my_port));
 }
 
 fn read_local_ports() -> std::collections::BTreeSet<u16> {
@@ -130,39 +129,88 @@ fn parse_ip(s: &str) -> Option<IpAddr> {
         .ok()
 }
 
-fn dest_addrs(ip: IpAddr, port: u16) -> Vec<SocketAddr> {
-    let mut v = vec![SocketAddr::new(ip, port)];
+/// Destinations pour un peer : IP EasyTier + loopback UNIQUEMENT si port != my_port.
+fn dest_addrs(ip: IpAddr, port: u16, my_port: u16) -> Vec<SocketAddr> {
+    let mut v = Vec::new();
+    if port == 0 {
+        return v;
+    }
+    // Jamais envoyer vers mon propre data port (anti self-echo)
+    if port == my_port {
+        return v;
+    }
     if !ip.is_loopback() {
+        v.push(SocketAddr::new(ip, port));
+        // meme PC via loopback vers le port DISTANT seulement
         v.push(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port));
     }
     v
 }
 
-async fn learn_endpoint(link: &LinkState, from_ip: IpAddr, remote_data: u16) -> bool {
+/// Apprend un endpoint distant. JAMAIS my_port. Sticky : ne pas ecraser un vrai port distant par self.
+async fn learn_endpoint(
+    link: &LinkState,
+    from_ip: IpAddr,
+    remote_data: u16,
+    my_port: u16,
+) -> bool {
     if remote_data == 0 {
-        fgl_trace(&format!("PEER_LEARN_SKIP from_ip={} err=reply_port_0", from_ip));
+        fgl_trace(&format!(
+            "PEER_LEARN_REJECT_SELF ip={} port=0 reason=zero",
+            from_ip
+        ));
         return false;
     }
+    if remote_data == my_port {
+        fgl_trace(&format!(
+            "PEER_LEARN_REJECT_SELF ip={} port={} reason=my_port",
+            from_ip, remote_data
+        ));
+        return false;
+    }
+
     let mut learned_new = false;
-    let peers: Vec<IpAddr> = link.peer_ips.lock().await.clone();
+    let peers: Vec<IpAddr> = link
+        .peer_ips
+        .lock()
+        .await
+        .iter()
+        .copied()
+        .filter(|ip| !ip.is_loopback())
+        .collect();
+
     fgl_trace(&format!(
-        "PEER_LEARN_TRY from_ip={} reply_port={} peers={:?}",
-        from_ip, remote_data, peers
+        "PEER_LEARN_TRY from_ip={} reply_port={} my_port={} peers={:?}",
+        from_ip, remote_data, my_port, peers
     ));
 
     {
         let mut eps = link.endpoints.lock().await;
 
+        // 1) Source EasyTier non-loopback : apprendre / mettre a jour ce peer uniquement
         if !from_ip.is_loopback() {
             match eps.get(&from_ip).copied() {
                 Some(p) if p == remote_data => {
-                    fgl_trace(&format!("PEER_LEARN_SAME ip={} port={}", from_ip, remote_data));
+                    fgl_trace(&format!(
+                        "PEER_LEARN_SAME ip={} port={}",
+                        from_ip, remote_data
+                    ));
                 }
-                Some(old) => {
+                Some(old) if old == my_port => {
+                    // ancien mapping self errone -> corriger
                     eps.insert(from_ip, remote_data);
                     learned_new = true;
                     fgl_trace(&format!(
-                        "PEER_LEARN ip={} port={} old_port={} (src EasyTier)",
+                        "PEER_LEARN_ACCEPT ip={} port={} old_port={} (fix self-map)",
+                        from_ip, remote_data, old
+                    ));
+                }
+                Some(old) => {
+                    // sticky : on accepte une MAJ depuis une vraie source ET
+                    eps.insert(from_ip, remote_data);
+                    learned_new = true;
+                    fgl_trace(&format!(
+                        "PEER_LEARN_ACCEPT ip={} port={} old_port={} (src EasyTier)",
                         from_ip, remote_data, old
                     ));
                 }
@@ -170,53 +218,83 @@ async fn learn_endpoint(link: &LinkState, from_ip: IpAddr, remote_data: u16) -> 
                     eps.insert(from_ip, remote_data);
                     learned_new = true;
                     fgl_trace(&format!(
-                        "PEER_LEARN ip={} port={} (src EasyTier)",
+                        "PEER_LEARN_ACCEPT ip={} port={} (src EasyTier)",
                         from_ip, remote_data
                     ));
                 }
             }
         } else {
+            // loopback : ne mappe QUE les peers encore sans endpoint (et jamais my_port)
             fgl_trace(&format!(
-                "PEER_LEARN src=127.0.0.1 port={} -> map EasyTier peers only",
+                "PEER_LEARN src=127.0.0.1 port={} (fill empty peers only)",
                 remote_data
             ));
+            for peer in &peers {
+                match eps.get(peer).copied() {
+                    Some(p) if p != my_port => {
+                        fgl_trace(&format!(
+                            "PEER_LEARN_FILL_SKIP peer={} already_port={} (sticky)",
+                            peer, p
+                        ));
+                    }
+                    Some(p) if p == my_port => {
+                        eps.insert(*peer, remote_data);
+                        learned_new = true;
+                        fgl_trace(&format!(
+                            "PEER_LEARN_ACCEPT peer={} port={} old_port={} (fix self-map via loopback)",
+                            peer, remote_data, p
+                        ));
+                    }
+                    None => {
+                        eps.insert(*peer, remote_data);
+                        learned_new = true;
+                        fgl_trace(&format!(
+                            "PEER_LEARN_ACCEPT peer={} port={} (fill from loopback)",
+                            peer, remote_data
+                        ));
+                    }
+                    _ => {}
+                }
+            }
         }
 
-        for peer in &peers {
-            if peer.is_loopback() {
-                continue;
-            }
-            match eps.get(peer).copied() {
-                Some(p) => {
-                    fgl_trace(&format!(
-                        "PEER_LEARN_FILL_SKIP peer={} already_port={}",
-                        peer, p
-                    ));
-                }
-                None => {
-                    eps.insert(*peer, remote_data);
-                    learned_new = true;
-                    fgl_trace(&format!(
-                        "PEER_LEARN_FILL peer={} port={} (from_src={})",
-                        peer, remote_data, from_ip
-                    ));
-                }
-            }
+        // Nettoyage : supprimer toute entree qui pointe vers my_port
+        let bad: Vec<IpAddr> = eps
+            .iter()
+            .filter(|(_, &p)| p == my_port)
+            .map(|(ip, _)| *ip)
+            .collect();
+        for ip in bad {
+            eps.remove(&ip);
+            fgl_trace(&format!(
+                "PEER_LEARN_REJECT_SELF ip={} port={} reason=cleanup_my_port",
+                ip, my_port
+            ));
         }
+        // Ne jamais garder 127.0.0.1 comme endpoint
+        eps.remove(&IpAddr::V4(Ipv4Addr::LOCALHOST));
+
         fgl_trace(&format!("ENDPOINTS_NOW {:?}", *eps));
     }
 
+    // Ne JAMAIS ajouter 127.0.0.1 a peer_ips
     if !from_ip.is_loopback() {
         let mut list = link.peer_ips.lock().await;
+        list.retain(|ip| !ip.is_loopback());
         if !list.contains(&from_ip) {
             list.push(from_ip);
             fgl_trace(&format!("PEER_IPS_ADD ip={}", from_ip));
         }
     }
+
     learned_new
 }
 
 async fn send_announce_to(sock: &UdpSocket, dest: SocketAddr, pseudo: &str, my_port: u16) {
+    if dest.port() == my_port {
+        fgl_trace(&format!("TX_ANNOUNCE_SKIP dest={} reason=my_port", dest));
+        return;
+    }
     let reply = LinkPacket {
         v: 1,
         kind: "announce".into(),
@@ -264,54 +342,55 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>, label: &str) {
                     ));
 
                     if let Some(link) = app.try_state::<LinkState>() {
-                        if pkt.reply_port > 0 {
-                            let learned = learn_endpoint(&link, from.ip(), pkt.reply_port).await;
-                            fgl_trace(&format!(
-                                "PEER_LEARN_DONE learned_new={} from_ip={} port={}",
-                                learned, from.ip(), pkt.reply_port
-                            ));
+                        let my_port = *link.port.lock().await;
+                        let my_pseudo = link.my_pseudo.lock().await.clone();
 
-                            if pkt.kind != "announce" {
-                                let my_port = *link.port.lock().await;
-                                let sock_data = {
-                                    let g = link.sock.lock().await;
-                                    g.as_ref().cloned()
-                                };
-                                let pseudo = link.my_pseudo.lock().await.clone();
-                                if my_port == 0 {
-                                    fgl_trace("PEER_REPLY_SKIP err=my_port_0");
-                                } else if let Some(sock_data) = sock_data {
-                                    let dest = SocketAddr::new(from.ip(), pkt.reply_port);
-                                    fgl_trace(&format!("PEER_REPLY_TRY to={}", dest));
-                                    send_announce_to(&sock_data, dest, &pseudo, my_port).await;
-                                    if from.ip().is_loopback() {
-                                        let peers = link.peer_ips.lock().await.clone();
-                                        for peer in peers {
-                                            if peer.is_loopback() {
-                                                continue;
-                                            }
-                                            let d = SocketAddr::new(peer, pkt.reply_port);
-                                            fgl_trace(&format!("PEER_REPLY_TRY to={} (easytier)", d));
-                                            send_announce_to(&sock_data, d, &pseudo, my_port).await;
-                                        }
-                                    }
-                                } else {
-                                    fgl_trace("PEER_REPLY_SKIP err=no_sock");
-                                }
-                            } else {
-                                fgl_trace("PEER_REPLY_SKIP kind=announce (no auto-reply loop)");
-                            }
-                        } else {
+                        // --- SELF DROP (echo) ---
+                        let is_self_port = pkt.reply_port > 0 && pkt.reply_port == my_port;
+                        let is_self_name = !my_pseudo.is_empty()
+                            && !pkt.from.is_empty()
+                            && pkt.from.eq_ignore_ascii_case(&my_pseudo);
+
+                        if is_self_port || is_self_name {
                             fgl_trace(&format!(
-                                "PEER_LEARN_SKIP {} kind={} err=no_reply_port",
-                                label, pkt.kind
+                                "SELF_DROP from={} reply_port={} my_port={} my_pseudo={} reason={}",
+                                pkt.from,
+                                pkt.reply_port,
+                                my_port,
+                                my_pseudo,
+                                if is_self_port { "reply_port==my_port" } else { "from==my_pseudo" }
                             ));
+                            // On n'apprend PAS cet endpoint ; on ne TX_IPC pas
+                            continue;
                         }
-                    } else {
-                        fgl_trace("RX_LINK_ERROR no LinkState");
+
+                        // Apprendre endpoint distant seulement
+                        if pkt.reply_port > 0 {
+                            let _ = learn_endpoint(&link, from.ip(), pkt.reply_port, my_port).await;
+                        }
+
+                        // PAS de PEER_REPLY sur player (evite tempete). Announce ignore aussi en reply.
+                        // Bootstrap reste dans bootstrap_announce / set_peers.
                     }
 
+                    // PLAYER distant uniquement -> IPC jeu
                     if pkt.kind == "player" && !pkt.payload.is_empty() {
+                        if let Some(link) = app.try_state::<LinkState>() {
+                            let my_port = *link.port.lock().await;
+                            let my_pseudo = link.my_pseudo.lock().await.clone();
+                            let is_self_port = pkt.reply_port > 0 && pkt.reply_port == my_port;
+                            let is_self_name = !my_pseudo.is_empty()
+                                && !pkt.from.is_empty()
+                                && pkt.from.eq_ignore_ascii_case(&my_pseudo);
+                            if is_self_port || is_self_name {
+                                fgl_trace(&format!(
+                                    "PLAYER_DROP_SELF from={} reply_port={}",
+                                    pkt.from, pkt.reply_port
+                                ));
+                                continue;
+                            }
+                        }
+
                         if let Some(ipc) = app.try_state::<crate::fgl_ipc::IpcState>() {
                             let line = if pkt.payload.starts_with("PLAYER|") {
                                 pkt.payload.clone()
@@ -320,12 +399,20 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>, label: &str) {
                             };
                             let seq = extract_seq(&line);
                             fgl_trace(&format!(
-                                "RX_EASYTIER seq={} from={} bytes={}",
-                                seq, pkt.from, line.len()
+                                "RX_EASYTIER from={} seq={} bytes={}",
+                                pkt.from,
+                                seq,
+                                line.len()
                             ));
                             match crate::fgl_ipc::deliver_to_game(&ipc, &line).await {
-                                Ok(()) => fgl_trace(&format!("TX_IPC seq={} (after RX_EASYTIER)", seq)),
-                                Err(e) => fgl_trace(&format!("TX_IPC_ERROR seq={} err={}", seq, e)),
+                                Ok(()) => fgl_trace(&format!(
+                                    "TX_IPC_REMOTE from={} seq={}",
+                                    pkt.from, seq
+                                )),
+                                Err(e) => fgl_trace(&format!(
+                                    "TX_IPC_ERROR from={} seq={} err={}",
+                                    pkt.from, seq, e
+                                )),
                             }
                         } else {
                             fgl_trace("RX_EASYTIER_ERROR no IpcState");
@@ -385,7 +472,21 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
         fgl_trace(&format!("TX_EASYTIER_ERROR seq={} err=serialize", seq));
         return 0;
     };
-    let peers = state.peer_ips.lock().await.clone();
+
+    // peers sans loopback
+    let peers: Vec<IpAddr> = state
+        .peer_ips
+        .lock()
+        .await
+        .iter()
+        .copied()
+        .filter(|ip| !ip.is_loopback())
+        .collect();
+    {
+        let mut list = state.peer_ips.lock().await;
+        list.retain(|ip| !ip.is_loopback());
+    }
+
     let eps = state.endpoints.lock().await.clone();
     let dport = discovery_port("fangame");
     fgl_trace(&format!(
@@ -396,22 +497,27 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
 
     for ip in &peers {
         if let Some(&port) = eps.get(ip) {
-            if port > 0 {
-                for dest in dest_addrs(*ip, port) {
+            if port > 0 && port != my_port {
+                for dest in dest_addrs(*ip, port, my_port) {
                     match sock.send_to(&data, dest).await {
                         Ok(n) => {
                             sent += 1;
                             fgl_trace(&format!(
-                                "TX_EASYTIER seq={} dest={} bytes={} (data)",
-                                seq, dest, n
+                                "TX_EASYTIER target={} seq={} bytes={} (data)",
+                                dest, seq, n
                             ));
                         }
                         Err(e) => fgl_trace(&format!(
-                            "TX_EASYTIER_ERROR seq={} dest={} err={} (data)",
-                            seq, dest, e
+                            "TX_EASYTIER_ERROR target={} seq={} err={} (data)",
+                            dest, seq, e
                         )),
                     }
                 }
+            } else if port == my_port {
+                fgl_trace(&format!(
+                    "TX_EASYTIER_SKIP ip={} port={} reason=endpoint_is_my_port seq={}",
+                    ip, port, seq
+                ));
             }
         } else {
             fgl_trace(&format!(
@@ -419,18 +525,19 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
                 seq, ip
             ));
         }
-        for dest in dest_addrs(*ip, dport) {
+        // Discovery (bootstrap) — pas vers my_port
+        for dest in dest_addrs(*ip, dport, my_port) {
             match sock.send_to(&data, dest).await {
                 Ok(n) => {
                     sent += 1;
                     fgl_trace(&format!(
-                        "TX_EASYTIER seq={} dest={} bytes={} (discovery)",
-                        seq, dest, n
+                        "TX_EASYTIER target={} seq={} bytes={} (discovery)",
+                        dest, seq, n
                     ));
                 }
                 Err(e) => fgl_trace(&format!(
-                    "TX_EASYTIER_ERROR seq={} dest={} err={} (discovery)",
-                    seq, dest, e
+                    "TX_EASYTIER_ERROR target={} seq={} err={} (discovery)",
+                    dest, seq, e
                 )),
             }
         }
@@ -440,7 +547,6 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
 }
 
 async fn bootstrap_announce(state: &LinkState) {
-    // Debounce 2s — evite le spam set_peers / announce
     {
         let mut last = state.last_bootstrap.lock().await;
         if let Some(t) = *last {
@@ -470,7 +576,18 @@ async fn bootstrap_announce(state: &LinkState) {
         }
     };
     let pseudo = state.my_pseudo.lock().await.clone();
-    let peers = state.peer_ips.lock().await.clone();
+    let peers: Vec<IpAddr> = state
+        .peer_ips
+        .lock()
+        .await
+        .iter()
+        .copied()
+        .filter(|ip| !ip.is_loopback())
+        .collect();
+    {
+        let mut list = state.peer_ips.lock().await;
+        list.retain(|ip| !ip.is_loopback());
+    }
     let eps = state.endpoints.lock().await.clone();
     let dport = discovery_port("fangame");
     let local_ports = read_local_ports();
@@ -479,15 +596,14 @@ async fn bootstrap_announce(state: &LinkState) {
         my_port, peers, eps, dport, local_ports
     ));
 
-    // 1) Discovery (ET + loopback)
     for ip in &peers {
-        for dest in dest_addrs(*ip, dport) {
+        for dest in dest_addrs(*ip, dport, my_port) {
             fgl_trace(&format!("BOOTSTRAP_TX discovery dest={}", dest));
             send_announce_to(&sock, dest, &pseudo, my_port).await;
         }
         if let Some(&port) = eps.get(ip) {
-            if port > 0 {
-                for dest in dest_addrs(*ip, port) {
+            if port > 0 && port != my_port {
+                for dest in dest_addrs(*ip, port, my_port) {
                     fgl_trace(&format!("BOOTSTRAP_TX data dest={}", dest));
                     send_announce_to(&sock, dest, &pseudo, my_port).await;
                 }
@@ -495,7 +611,7 @@ async fn bootstrap_announce(state: &LinkState) {
         }
     }
 
-    // 2) Meme PC : ports data locaux connus (registre Bureau)
+    // Meme PC : autres ports data locaux (pas mon port)
     for &p in &local_ports {
         if p == my_port {
             continue;
@@ -504,9 +620,6 @@ async fn bootstrap_announce(state: &LinkState) {
         fgl_trace(&format!("BOOTSTRAP_TX local_data dest={}", dest));
         send_announce_to(&sock, dest, &pseudo, my_port).await;
         for ip in &peers {
-            if ip.is_loopback() {
-                continue;
-            }
             let d = SocketAddr::new(*ip, p);
             fgl_trace(&format!("BOOTSTRAP_TX local_data_et dest={}", d));
             send_announce_to(&sock, d, &pseudo, my_port).await;
@@ -516,7 +629,6 @@ async fn bootstrap_announce(state: &LinkState) {
     fgl_trace("BOOTSTRAP_ANNOUNCE_DONE");
 }
 
-/// Bind UDP avec SO_REUSEADDR (Windows: plusieurs process peuvent partager discovery).
 async fn bind_udp_reuse(addr: SocketAddr) -> Result<UdpSocket, String> {
     use socket2::{Domain, Protocol, Socket, Type};
     let domain = if addr.is_ipv4() {
@@ -618,8 +730,13 @@ pub async fn fgl_link_set_peers(
     ips: Vec<String>,
 ) -> Result<(), String> {
     let mut list = state.peer_ips.lock().await.clone();
+    list.retain(|ip| !ip.is_loopback());
     for s in ips {
         if let Some(ip) = parse_ip(&s) {
+            if ip.is_loopback() {
+                fgl_trace(&format!("PEER_SET_REJECT loopback {}", s));
+                continue;
+            }
             if !list.contains(&ip) {
                 list.push(ip);
                 fgl_trace(&format!("PEER_SET_ADD ip={}", ip));
@@ -640,17 +757,26 @@ pub async fn fgl_link_remember(
     ip: String,
     port: u16,
 ) -> Result<(), String> {
-    if port == 0 {
-        fgl_trace("PEER_REMEMBER_SKIP port=0");
+    let my_port = *state.port.lock().await;
+    if port == 0 || port == my_port {
+        fgl_trace(&format!(
+            "PEER_LEARN_REJECT_SELF remember ip={} port={} my_port={}",
+            ip, port, my_port
+        ));
         return Ok(());
     }
     let Some(parsed) = parse_ip(&ip) else {
         fgl_trace(&format!("PEER_REMEMBER_SKIP bad_ip={}", ip));
         return Ok(());
     };
+    if parsed.is_loopback() {
+        fgl_trace("PEER_REMEMBER_SKIP loopback");
+        return Ok(());
+    }
     state.endpoints.lock().await.insert(parsed, port);
-    fgl_trace(&format!("PEER_LEARN (remember) ip={} port={}", parsed, port));
+    fgl_trace(&format!("PEER_LEARN_ACCEPT (remember) ip={} port={}", parsed, port));
     let mut list = state.peer_ips.lock().await;
+    list.retain(|ip| !ip.is_loopback());
     if !list.contains(&parsed) {
         list.push(parsed);
     }
@@ -700,9 +826,12 @@ pub async fn fgl_link_send(
         let Some(ip) = parse_ip(&s) else {
             continue;
         };
+        if ip.is_loopback() {
+            continue;
+        }
         if let Some(&port) = eps.get(&ip) {
-            if port > 0 {
-                for dest in dest_addrs(ip, port) {
+            if port > 0 && port != my_port {
+                for dest in dest_addrs(ip, port, my_port) {
                     if sock.send_to(&data, dest).await.is_ok() {
                         sent += 1;
                         fgl_trace(&format!("FGL_LINK_SEND_OK dest={}", dest));
@@ -710,7 +839,7 @@ pub async fn fgl_link_send(
                 }
             }
         }
-        for dest in dest_addrs(ip, dport) {
+        for dest in dest_addrs(ip, dport, my_port) {
             if sock.send_to(&data, dest).await.is_ok() {
                 sent += 1;
                 fgl_trace(&format!("FGL_LINK_SEND_OK dest={} (discovery)", dest));
