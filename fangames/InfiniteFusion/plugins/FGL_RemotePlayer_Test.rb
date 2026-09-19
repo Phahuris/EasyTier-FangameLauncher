@@ -250,7 +250,7 @@ module FGL_RemotePlayer_Test
     return if ipc_port <= 0
     ensure_id
     p = $game_player
-    cname = clean_name(p.character_name rescue "walk")
+    cname = clean_name((p.character_name rescue "walk"))
     cname = "walk" if cname.empty?
     px = p.x.to_i rescue 0
     py = p.y.to_i rescue 0
