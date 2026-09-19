@@ -63,7 +63,13 @@ pub async fn deliver_to_game(state: &IpcState, payload: &str) -> Result<(), Stri
         state.inbox.lock().await.push_back(payload.to_string());
         match sock.send_to(payload.as_bytes(), addr).await {
             Ok(_) => {
-                fgl_trace(&format!("TX_IPC seq={} to={}", seq, addr));
+                fgl_trace(&format!(
+                    "TX_IPC seq={} to={} bytes={} raw={:.120}",
+                    seq,
+                    addr,
+                    payload.len(),
+                    payload
+                ));
                 Ok(())
             }
             Err(e) => {

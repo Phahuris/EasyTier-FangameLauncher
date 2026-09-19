@@ -348,10 +348,23 @@ async fn spawn_reader(app: AppHandle, sock: Arc<UdpSocket>, label: &str) {
                                 line.len()
                             ));
                             match crate::fgl_ipc::deliver_to_game(&ipc, &line).await {
-                                Ok(()) => fgl_trace(&format!(
-                                    "TX_IPC_REMOTE from={} seq={}",
-                                    pkt.from, seq
-                                )),
+                                Ok(()) => {
+                                    fgl_trace(&format!(
+                                        "TX_IPC_REMOTE from={} seq={} bytes={} raw={:.120}",
+                                        pkt.from,
+                                        seq,
+                                        line.len(),
+                                        line
+                                    ));
+                                    let _ = app.emit(
+                                        "fgl_to_game",
+                                        serde_json::json!({
+                                            "raw": line,
+                                            "from": pkt.from,
+                                            "source": "easytier",
+                                        }),
+                                    );
+                                }
                                 Err(e) => fgl_trace(&format!(
                                     "TX_IPC_ERROR from={} seq={} err={}",
                                     pkt.from, seq, e
