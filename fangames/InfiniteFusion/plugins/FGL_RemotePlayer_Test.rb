@@ -21,9 +21,6 @@ module FGL_RemotePlayer_Test
   @status_n = 0
   @last_err = ""
   @poll_raw = 0
-  @ipc_inbox = []
-  @ipc_fanout_done = false
-
   def self.status_path
     begin
       desk = ENV["USERPROFILE"].to_s
@@ -44,7 +41,6 @@ module FGL_RemotePlayer_Test
       lines << "ipc_port=#{ipc_port}"
       lines << "my_id=#{@my_id}"
       lines << "poll_raw=#{@poll_raw.to_i}"
-      lines << "inbox=#{(@ipc_inbox ? @ipc_inbox.size : 0)}"
       lines << "remotes=#{@remotes.size}"
       lines << "scene=#{$scene ? $scene.class.name : "nil"}"
       lines << "vp=#{map_viewport ? "ok" : "nil"}"
@@ -66,67 +62,68 @@ module FGL_RemotePlayer_Test
   end
 
   def self.ensure_sock
-    nil
-  end
-
-  def self.install_ipc_fanout!
-    return if @ipc_fanout_done
-    @ipc_fanout_done = true
-    @ipc_inbox = [] unless @ipc_inbox
+    return if @sock
+    return if ipc_port <= 0
     begin
-      return unless defined?(FGL_IPC) && FGL_IPC.respond_to?(:poll)
-      return if FGL_IPC.respond_to?(:_fgl_rpt_poll_orig)
-      FGL_IPC.singleton_class.class_eval do
-        alias_method :_fgl_rpt_poll_orig, :poll
-        def poll
-          batch = _fgl_rpt_poll_orig
-          begin
-            if batch.is_a?(Array) && batch.size > 0
-              FGL_RemotePlayer_Test.push_ipc_batch(batch)
-            end
-          rescue
-          end
-          batch
-        end
-      end
+      require "socket"
+      @sock = UDPSocket.new
+      @sock.bind("127.0.0.1", 0)
     rescue => e
-      @last_err = "fanout:#{e}"
-      @ipc_fanout_done = false
-    end
-  end
-
-  def self.push_ipc_batch(batch)
-    @ipc_inbox = [] unless @ipc_inbox
-    batch.each { |line| @ipc_inbox << line.to_s }
-    while @ipc_inbox.size > 256
-      @ipc_inbox.shift
+      @last_err = "sock:#{e}"
+      @sock = nil
     end
   end
 
   def self.ipc_send(line)
     p = ipc_port
     return if p <= 0
+    ensure_sock
+    return unless @sock
     begin
-      if defined?(FGL_IPC) && FGL_IPC.respond_to?(:send_player_line)
-        FGL_IPC.send_player_line(line)
-        return
-      end
+      @sock.send("PLAYER|" + line.to_s, 0, "127.0.0.1", p)
     rescue => e
       @last_err = "send:#{e}"
     end
   end
 
   def self.ipc_poll
-    install_ipc_fanout!
     return [] if ipc_port <= 0
-    @ipc_inbox = [] unless @ipc_inbox
+    ensure_sock
+    return [] unless @sock
     out = []
-    while @ipc_inbox.size > 0 && out.size < 32
-      out << @ipc_inbox.shift
+    32.times do
+      begin
+        data = nil
+        if @sock.respond_to?(:recvfrom_nonblock)
+          begin
+            data, _addr = @sock.recvfrom_nonblock(65535)
+          rescue Errno::EAGAIN, Errno::EWOULDBLOCK
+            break
+          rescue IO::WaitReadable
+            break
+          end
+        else
+          ready = true
+          begin
+            if defined?(IO) && IO.respond_to?(:select)
+              r = IO.select([@sock], nil, nil, 0)
+              ready = r && r[0] && r[0].include?(@sock)
+            end
+          rescue
+            ready = true
+          end
+          break unless ready
+          data, _addr = @sock.recvfrom(65535)
+        end
+        out << data.to_s if data && data.to_s.length > 0
+      rescue Errno::EAGAIN, Errno::EWOULDBLOCK
+        break
+      rescue
+        break
+      end
     end
     out
   end
-
   def self.ensure_id
     return if @my_id
     @my_id = "#{Time.now.to_i}_#{rand(999999)}"
@@ -436,7 +433,6 @@ module FGL_RemotePlayer_Test
 
   def self.install_hooks!
     return if @hooks_done
-    install_ipc_fanout!
     ok = false
     begin
       if defined?(Graphics)
