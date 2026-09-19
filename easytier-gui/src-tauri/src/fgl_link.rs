@@ -261,7 +261,7 @@ async fn learn_endpoint(
         // Nettoyage : supprimer toute entree qui pointe vers my_port
         let bad: Vec<IpAddr> = eps
             .iter()
-            .filter(|(_, &p)| p == my_port)
+            .filter(|(_, p)| *p == my_port)
             .map(|(ip, _)| *ip)
             .collect();
         for ip in bad {
