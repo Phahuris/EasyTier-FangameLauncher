@@ -93,7 +93,7 @@ module FGL_RemotePlayer_Test
     ensure_sock
     return [] unless @sock
     out = []
-    32.times do
+    256.times do
       begin
         data = nil
         if @sock.respond_to?(:recvfrom_nonblock)
@@ -973,13 +973,17 @@ module FGL_RemotePlayer_Test
   def self.ingest_network
     ensure_id
     return if ipc_port <= 0
-    seen = {}
     batch = ipc_poll
     @poll_raw = (@poll_raw || 0) + batch.size
+    # Coalesce: pour chaque id, seul le DERNIER PLAYER de ce batch compte
+    latest = {}
     batch.each do |raw|
       data = parse_player_raw(raw)
       next unless data
-      id = data[:id]
+      latest[data[:id]] = data
+    end
+    seen = {}
+    latest.each do |id, data|
       seen[id] = true
       rec = @remotes[id]
       if rec.nil?
@@ -994,7 +998,7 @@ module FGL_RemotePlayer_Test
         }
         @remotes[id] = rec
       end
-      # Mise à jour données UNIQUEMENT — le sprite reste le même objet
+      # Remplace l'etat — pas de file, pas de replay
       rec[:map] = data[:map]
       rec[:x] = data[:x]
       rec[:y] = data[:y]
@@ -1018,6 +1022,7 @@ module FGL_RemotePlayer_Test
       rec[:bike_col] = data[:bike_col]
       rec[:miss] = 0
     end
+    # Pas de paquet ce tick => miss++, mais sprite reste jusqu'a STALE_MISS
     @remotes.keys.each do |id|
       next if seen[id]
       @remotes[id][:miss] = (@remotes[id][:miss] || 0) + 1
@@ -1118,19 +1123,7 @@ module FGL_RemotePlayer_Test
     begin
       if defined?(Graphics)
         meta = (class << Graphics; self; end)
-        meta.class_eval do
-          unless method_defined?(:_fgl_rpt_graphics_update)
-            alias_method :_fgl_rpt_graphics_update, :update
-            def update
-              _fgl_rpt_graphics_update
-              begin
-                FGL_RemotePlayer_Test.pre_update
-              rescue
-              end
-            end
-          end
-        end
-        ok = true
+        ok = true  # Graphics hook removed: single Scene_Map cycle only
       end
     rescue => e
       @last_err = "hookG:#{e}"
