@@ -1,16 +1,14 @@
 # =============================================================================
-# FGL_RemotePlayer_Test.rb — PROTOTYPE EXPERIMENTAL (isole)
+# FGL_RemotePlayer_Test.rb — IPC + rendu Infinite Fusion (complet, style FGL_Net)
 # =============================================================================
-# Joueur distant via IPC launcher + rendu Infinite Fusion (pas Sprite_Character).
-# Chemin: Game -> IPC (FGL_IPC_PORT) -> Launcher -> EasyTier -> Launcher -> IPC -> Game
-# - Ne modifie PAS FGL_Net / Trade / Battle
-# - Transport UDP propre (socket bind 127.0.0.1:0)
-# - Rendu: build_body_bitmap / Sprite.new / couches / tile_to_screen (logique FGL_Net)
+# Transport: UDP bind 127.0.0.1:0 → FGL_IPC_PORT (launcher)
+# Rendu: pipeline FGL_Net (body/layers/pos/labels) — Sprite stable, pas de destroy/recreate
+# Cycle: pre_update (réseau) → Scene_Map.update → post_update (pos + labels)
 # =============================================================================
 
 module FGL_RemotePlayer_Test
   TICK = 0.05
-  STALE_MISS = 120
+  STALE_MISS = 1800
   STATUS_EVERY = 30
   FW = 80
   FH = 80
@@ -23,6 +21,8 @@ module FGL_RemotePlayer_Test
   @status_n = 0
   @last_err = ""
   @poll_raw = 0
+  @local_fishing = false
+  @last_action_written = nil
 
   def self.status_path
     begin
@@ -49,7 +49,7 @@ module FGL_RemotePlayer_Test
       lines << "vp=#{map_viewport ? "ok" : "nil"}"
       lines << "err=#{@last_err}"
       @remotes.each do |id, rec|
-        lines << "remote id=#{id} map=#{rec[:map]} x=#{rec[:x]} y=#{rec[:y]} dir=#{rec[:dir]} cname=#{rec[:cname]} spr=#{rec[:sprite] ? "yes" : "no"}"
+        lines << "remote id=#{id} map=#{rec[:map]} x=#{rec[:x]} y=#{rec[:y]} dir=#{rec[:dir]} cname=#{rec[:cname]} action=#{rec[:action]} spr=#{rec[:sprite] ? "yes" : "no"}"
       end
       lines << extra if extra.to_s != ""
       File.open(status_path, "w") { |f| f.puts lines.join("\n") }
@@ -181,6 +181,84 @@ module FGL_RemotePlayer_Test
     nil
   end
 
+  def self.factory
+    begin
+      return $MapFactory if defined?($MapFactory) && $MapFactory
+    rescue
+    end
+    begin
+      return $map_factory if defined?($map_factory) && $map_factory
+    rescue
+    end
+    nil
+  end
+
+  def self.target_map_for(remote_mid)
+    return nil if !remote_mid || remote_mid == 0
+    begin
+      return $game_map if $game_map && remote_mid == $game_map.map_id
+    rescue
+    end
+    mf = factory
+    return nil unless mf
+    begin
+      mf.setMapsInRange if mf.respond_to?(:setMapsInRange)
+    rescue
+    end
+    begin
+      return mf.getMap(remote_mid) if mf.respond_to?(:hasMap?) && mf.hasMap?(remote_mid)
+    rescue
+    end
+    begin
+      if mf.respond_to?(:areConnected?) && $game_map && mf.areConnected?($game_map.map_id, remote_mid)
+        return mf.getMap(remote_mid)
+      end
+    rescue
+    end
+    nil
+  end
+
+  def self.ui_locks_peers?
+    begin
+      return true if $game_map && $game_map.scrolling?
+    rescue
+    end
+    begin
+      if $game_map && $game_player
+        sx, sy = tile_to_screen($game_player.x, $game_player.y)
+        screen_cx = Graphics.width / 2
+        screen_cy = Graphics.height / 2
+        if (sx - screen_cx).abs > 32 || (sy - screen_cy).abs > 32
+          return true
+        end
+      end
+    rescue
+    end
+    begin
+      return true if $scene && !$scene.is_a?(Scene_Map)
+    rescue
+    end
+    begin
+      if defined?($game_temp) && $game_temp
+        return true if $game_temp.respond_to?(:in_menu) && $game_temp.in_menu
+        return true if $game_temp.respond_to?(:menu_calling) && $game_temp.menu_calling
+        return true if $game_temp.respond_to?(:common_event_id) && $game_temp.common_event_id.to_i > 0
+      end
+    rescue
+    end
+    begin
+      return true if defined?($PokemonTemp) && $PokemonTemp && $PokemonTemp.trainer_preview
+    rescue
+    end
+    begin
+      if defined?(SWITCH_SELECTING_CLOTHES) && $game_switches[SWITCH_SELECTING_CLOTHES]
+        return true
+      end
+    rescue
+    end
+    false
+  end
+
   def self.player_display_name
     begin
       return safe_text($player.name) if defined?($player) && $player && $player.name
@@ -195,10 +273,14 @@ module FGL_RemotePlayer_Test
 
   def self.detect_move_state
     begin
+      return 3 if @local_fishing
+      return 3 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.fishing
+    rescue
+    end
+    begin
       return 1 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.surfing
       return 4 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.diving
       return 2 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.bicycle
-      return 3 if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.fishing
     rescue
     end
     begin
@@ -220,6 +302,47 @@ module FGL_RemotePlayer_Test
     return "fish" if state.to_i == 3 || cn.include?("fish")
     return "run" if cn.include?("run")
     "walk"
+  end
+
+  def self.detect_action
+    sc = ""
+    begin
+      sc = $scene.class.name.to_s if $scene
+    rescue
+    end
+    begin
+      return "Fishing" if @local_fishing
+      return "Fishing" if defined?($PokemonGlobal) && $PokemonGlobal && $PokemonGlobal.fishing
+    rescue
+    end
+    begin
+      if defined?(FGLBattle)
+        return "Battle" if (FGLBattle.busy? rescue false) || (FGLBattle.active? rescue false)
+      end
+    rescue
+    end
+    begin
+      return "Battle" if sc.include?("PokeBattle") || sc.include?("Battle_Scene") ||
+                         (sc.include?("Battle") && !sc.include?("Map") && !sc.include?("Bag"))
+      return "Battle" if defined?(pbInBattle?) && pbInBattle?
+    rescue
+    end
+    begin
+      if defined?(FGLTrade)
+        return "Trade" if (FGLTrade.busy? rescue false) || (FGLTrade.active? rescue false)
+      end
+    rescue
+    end
+    begin
+      return "Trade" if sc.include?("Trade") || sc.include?("PokemonTrade")
+    rescue
+    end
+    begin
+      return "Menu" if defined?($game_temp) && $game_temp && $game_temp.respond_to?(:in_menu) && $game_temp.in_menu
+      return "Menu" if sc.include?("PauseMenu")
+    rescue
+    end
+    ""
   end
 
   def self.read_trainer_outfit
@@ -279,7 +402,8 @@ module FGL_RemotePlayer_Test
     end
     mid = ($game_map.map_id rescue 0).to_i
     pname = player_display_name
-    action = ""
+    action = safe_text(detect_action)
+    @last_action_written = action
     state = detect_move_state
     clothes, hair, hat, hat2, cc, hc, htc, h2c, skin, surfmon, bike_col = read_trainer_outfit
     line = [
@@ -325,8 +449,6 @@ module FGL_RemotePlayer_Test
     }
   end
 
-  # ---------- Rendu Infinite Fusion (repris de FGL_Net) ----------
-
   def self.safe_dispose(obj)
     return unless obj
     begin
@@ -337,11 +459,13 @@ module FGL_RemotePlayer_Test
 
   def self.destroy_player_visuals(rec)
     return unless rec
-    [:sprite, :hair_spr, :hat_spr, :hat2_spr, :bike_spr, :surf_sprite].each do |k|
+    [:sprite, :hair_spr, :hat_spr, :hat2_spr, :bike_spr, :surf_sprite,
+     :label_name, :label_action].each do |k|
       safe_dispose(rec[k])
       rec[k] = nil
     end
-    [:owned_bmp, :hair_bmp, :hat_bmp, :hat2_bmp, :bike_bmp].each do |k|
+    [:owned_bmp, :hair_bmp, :hat_bmp, :hat2_bmp, :bike_bmp,
+     :label_name_bmp, :label_action_bmp].each do |k|
       begin
         rec[k].dispose if rec[k]
       rescue
@@ -353,6 +477,7 @@ module FGL_RemotePlayer_Test
     rescue
     end
     rec[:surf_anim] = nil
+    rec[:label_key] = nil
     rec[:bound_map_id] = nil
     rec[:last_outfit_key] = nil
     rec[:frozen_sx] = nil
@@ -427,6 +552,33 @@ module FGL_RemotePlayer_Test
       pbDayNightTint(spr) if defined?(pbDayNightTint)
     rescue
     end
+  end
+
+  def self.draw_rounded_rect(bmp, x, y, w, h, col)
+    return if w < 6 || h < 6
+    bmp.fill_rect(x + 2, y, w - 4, h, col)
+    bmp.fill_rect(x, y + 2, w, h - 4, col)
+    bmp.fill_rect(x + 1, y + 1, w - 2, h - 2, col)
+  end
+
+  def self.make_bubble(text, is_action)
+    text = safe_text(text)
+    text = "?" if text.empty?
+    w = 96; h = 18
+    bmp = Bitmap.new(w, h)
+    if is_action
+      bg = Color.new(20, 20, 20, 170)
+      fg = Color.new(255, 220, 80)
+    else
+      bg = Color.new(0, 0, 0, 150)
+      fg = Color.new(255, 255, 255)
+    end
+    draw_rounded_rect(bmp, 2, 1, w - 4, h - 2, bg)
+    bmp.font.name = "Arial"
+    bmp.font.size = 14
+    bmp.font.color = fg
+    bmp.draw_text(0, 1, w, 16, text, 1)
+    bmp
   end
 
   def self.build_body_bitmap(rec)
@@ -525,6 +677,7 @@ module FGL_RemotePlayer_Test
     s
   end
 
+  # Crée le sprite UNIQUEMENT si besoin (map/outfit/disposed) — jamais à chaque paquet
   def self.ensure_sprite(rec)
     return unless rec
     begin
@@ -533,11 +686,12 @@ module FGL_RemotePlayer_Test
       return
     end
     remote_mid = rec[:map].to_i
-    local_mid = ($game_map.map_id rescue 0).to_i
-    if remote_mid != 0 && local_mid != 0 && remote_mid != local_mid
+    tmap = target_map_for(remote_mid)
+    if tmap.nil?
       destroy_player_visuals(rec) if rec[:sprite]
       return
     end
+    rec[:_tmap] = tmap
     v = map_viewport
     return if v.nil?
 
@@ -650,14 +804,27 @@ module FGL_RemotePlayer_Test
       rec[:bound_map_id] = remote_mid
       rec[:last_outfit_key] = outfit_key
     end
-    update_sprite_pos(rec)
   end
 
   def self.update_sprite_pos(rec)
     s = rec[:sprite]
     return unless s
+    locked = ui_locks_peers?
+    if locked && rec[:frozen_sx] && rec[:frozen_sy]
+      sx = rec[:frozen_sx]
+      sy = rec[:frozen_sy]
+    else
+      tmap = rec[:_tmap] || target_map_for(rec[:map].to_i) || $game_map
+      sx, sy = tile_to_screen(rec[:x].to_i, rec[:y].to_i, tmap)
+      if locked
+        rec[:frozen_sx] = sx
+        rec[:frozen_sy] = sy
+      else
+        rec[:frozen_sx] = nil
+        rec[:frozen_sy] = nil
+      end
+    end
     begin
-      sx, sy = tile_to_screen(rec[:x].to_i, rec[:y].to_i, $game_map)
       dir = rec[:dir].to_i; dir = 2 if dir <= 0
       pat = rec[:pattern].to_i
       action = state_to_action(rec[:state], rec[:cname])
@@ -742,6 +909,67 @@ module FGL_RemotePlayer_Test
     end
   end
 
+  def self.update_labels(rec)
+    parent = rec[:sprite]
+    return unless parent
+    pname = rec[:pname].to_s
+    pname = "Player" if pname.empty?
+    action = rec[:action].to_s
+    key = "#{pname}|#{action}"
+    v = map_viewport
+    return unless v
+    if rec[:label_key] != key
+      safe_dispose(rec[:label_name])
+      safe_dispose(rec[:label_action])
+      begin
+        rec[:label_name_bmp].dispose if rec[:label_name_bmp]
+      rescue
+      end
+      begin
+        rec[:label_action_bmp].dispose if rec[:label_action_bmp]
+      rescue
+      end
+      rec[:label_name] = nil
+      rec[:label_action] = nil
+      nb = make_bubble(pname, false)
+      ns = ::Sprite.new(v)
+      ns.bitmap = nb
+      ns.ox = nb.width / 2
+      ns.oy = nb.height
+      rec[:label_name_bmp] = nb
+      rec[:label_name] = ns
+      if action != ""
+        ab = make_bubble(action, true)
+        as_ = ::Sprite.new(v)
+        as_.bitmap = ab
+        as_.ox = ab.width / 2
+        as_.oy = ab.height
+        rec[:label_action_bmp] = ab
+        rec[:label_action] = as_
+      end
+      rec[:label_key] = key
+    end
+    begin
+      head = parent.y - 56
+      name_y = head - 6
+      pz = (parent.z rescue 100) + 5
+      if rec[:label_name]
+        rec[:label_name].x = parent.x
+        rec[:label_name].y = name_y
+        rec[:label_name].z = pz
+        rec[:label_name].visible = parent.visible
+      end
+      if rec[:label_action]
+        rec[:label_action].x = parent.x
+        rec[:label_action].y = name_y - 18
+        rec[:label_action].z = pz + 1
+        rec[:label_action].visible = parent.visible
+      end
+    rescue
+    end
+  end
+
+  # pre_update: réseau + données seulement (pas de destroy systématique)
   def self.ingest_network
     ensure_id
     return if ipc_port <= 0
@@ -758,11 +986,15 @@ module FGL_RemotePlayer_Test
         rec = {
           :sprite => nil, :hair_spr => nil, :hat_spr => nil, :hat2_spr => nil,
           :bike_spr => nil, :surf_sprite => nil, :surf_anim => nil,
+          :label_name => nil, :label_action => nil,
           :owned_bmp => nil, :hair_bmp => nil, :hat_bmp => nil, :hat2_bmp => nil, :bike_bmp => nil,
-          :bound_map_id => nil, :last_outfit_key => nil, :miss => 0
+          :label_name_bmp => nil, :label_action_bmp => nil,
+          :label_key => nil, :bound_map_id => nil, :last_outfit_key => nil,
+          :frozen_sx => nil, :frozen_sy => nil, :miss => 0
         }
         @remotes[id] = rec
       end
+      # Mise à jour données UNIQUEMENT — le sprite reste le même objet
       rec[:map] = data[:map]
       rec[:x] = data[:x]
       rec[:y] = data[:y]
@@ -785,7 +1017,6 @@ module FGL_RemotePlayer_Test
       rec[:surfmon] = data[:surfmon]
       rec[:bike_col] = data[:bike_col]
       rec[:miss] = 0
-      ensure_sprite(rec)
     end
     @remotes.keys.each do |id|
       next if seen[id]
@@ -801,23 +1032,13 @@ module FGL_RemotePlayer_Test
     @remotes.delete(id)
   end
 
-  def self.update_sprites
-    @remotes.each_value do |rec|
-      ensure_sprite(rec)
-      begin
-        update_sprite_pos(rec) if rec[:sprite]
-      rescue => e
-        @last_err = "upd:#{e}"
-      end
-    end
-  end
-
   def self.clear_all
     @remotes.keys.each { |id| kill_remote(id) }
     @remotes.clear
   end
 
-  def self.tick
+  # Cycle FGL_Net: pre → Scene_Map → post
+  def self.pre_update
     return unless $game_player && $game_map
     now = Time.now.to_f
     begin
@@ -841,10 +1062,13 @@ module FGL_RemotePlayer_Test
     rescue => e
       @last_err = "ingest:#{e}"
     end
-    begin
-      update_sprites
-    rescue => e
-      @last_err = "sprites:#{e}"
+    # Création sprite seulement si besoin (map/outfit) — pas de pos ici
+    @remotes.each_value do |rec|
+      begin
+        ensure_sprite(rec)
+      rescue => e
+        @last_err = "ens:#{e}"
+      end
     end
     @status_n += 1
     if @status_n == 1 || (@status_n % STATUS_EVERY) == 0
@@ -852,9 +1076,45 @@ module FGL_RemotePlayer_Test
     end
   end
 
+  def self.post_update
+    begin
+      return unless $scene.is_a?(Scene_Map)
+    rescue
+      return
+    end
+    @remotes.each_value do |rec|
+      next unless rec[:sprite]
+      begin
+        update_sprite_pos(rec)
+      rescue => e
+        @last_err = "pos:#{e}"
+      end
+      begin
+        update_labels(rec)
+      rescue => e
+        @last_err = "lab:#{e}"
+      end
+    end
+  end
+
+  # Compat hooks anciens
+  def self.tick
+    pre_update
+  end
+
+  def self.update_sprites
+    post_update
+  end
+
   def self.install_hooks!
     return if @hooks_done
     ok = false
+    begin
+      if defined?(pbFishingBegin)
+        eval("alias _fgl_rpt_pbFishingBegin pbFishingBegin unless defined?(_fgl_rpt_pbFishingBegin)\ndef pbFishingBegin(*a)\nFGL_RemotePlayer_Test.instance_variable_set(:@local_fishing,true)\n_fgl_rpt_pbFishingBegin(*a)\nend\nalias _fgl_rpt_pbFishingEnd pbFishingEnd unless defined?(_fgl_rpt_pbFishingEnd)\ndef pbFishingEnd(*a)\nFGL_RemotePlayer_Test.instance_variable_set(:@local_fishing,false)\n_fgl_rpt_pbFishingEnd(*a)\nend")
+      end
+    rescue
+    end
     begin
       if defined?(Graphics)
         meta = (class << Graphics; self; end)
@@ -864,7 +1124,7 @@ module FGL_RemotePlayer_Test
             def update
               _fgl_rpt_graphics_update
               begin
-                FGL_RemotePlayer_Test.tick
+                FGL_RemotePlayer_Test.pre_update
               rescue
               end
             end
@@ -881,9 +1141,13 @@ module FGL_RemotePlayer_Test
           unless method_defined?(:_fgl_rpt_scene_update)
             alias_method :_fgl_rpt_scene_update, :update
             def update
+              begin
+                FGL_RemotePlayer_Test.pre_update
+              rescue
+              end
               _fgl_rpt_scene_update
               begin
-                FGL_RemotePlayer_Test.update_sprites
+                FGL_RemotePlayer_Test.post_update
               rescue
               end
             end
