@@ -23,6 +23,7 @@ module FGL_RemotePlayer_Test
   @poll_raw = 0
   @local_fishing = false
   @last_action_written = nil
+  @tx_seq = 0
 
   def self.status_path
     begin
@@ -49,7 +50,7 @@ module FGL_RemotePlayer_Test
       lines << "vp=#{map_viewport ? "ok" : "nil"}"
       lines << "err=#{@last_err}"
       @remotes.each do |id, rec|
-        lines << "remote id=#{id} map=#{rec[:map]} x=#{rec[:x]} y=#{rec[:y]} dir=#{rec[:dir]} cname=#{rec[:cname]} action=#{rec[:action]} spr=#{rec[:sprite] ? "yes" : "no"}"
+        lines << "remote id=#{id} map=#{rec[:map]} x=#{rec[:x]} y=#{rec[:y]} dir=#{rec[:dir]} cname=#{rec[:cname]} action=#{rec[:action]} seq=#{rec[:seq]} spr=#{rec[:sprite] ? "yes" : "no"}"
       end
       lines << extra if extra.to_s != ""
       File.open(status_path, "w") { |f| f.puts lines.join("\n") }
@@ -93,7 +94,7 @@ module FGL_RemotePlayer_Test
     ensure_sock
     return [] unless @sock
     out = []
-    256.times do
+    loop do
       begin
         data = nil
         if @sock.respond_to?(:recvfrom_nonblock)
@@ -118,6 +119,7 @@ module FGL_RemotePlayer_Test
           data, _addr = @sock.recvfrom(65535)
         end
         out << data.to_s if data && data.to_s.length > 0
+        break if out.size >= 2048
       rescue Errno::EAGAIN, Errno::EWOULDBLOCK
         break
       rescue
@@ -406,10 +408,11 @@ module FGL_RemotePlayer_Test
     @last_action_written = action
     state = detect_move_state
     clothes, hair, hat, hat2, cc, hc, htc, h2c, skin, surfmon, bike_col = read_trainer_outfit
+    @tx_seq = (@tx_seq || 0) + 1
     line = [
       @my_id, "P", mid, px, py, pdir, cname, pspeed, ppat, 0,
       0, 0, 0, 0, 0, action, pname,
-      clothes, hair, hat, hat2, cc, hc, htc, h2c, skin, state, surfmon, bike_col, Time.now.to_i
+      clothes, hair, hat, hat2, cc, hc, htc, h2c, skin, state, surfmon, bike_col, @tx_seq
     ].join("|")
     ipc_send(line)
   end
@@ -423,6 +426,13 @@ module FGL_RemotePlayer_Test
     return nil if id.empty?
     return nil if @my_id && id == @my_id
     return nil if a[1].to_s != "P" && a[1].to_s != ""
+    seq = 0
+    begin
+      seq = a[-1].to_i if a.size >= 30
+      seq = a[-1].to_i if seq <= 0 && a.size >= 7
+    rescue
+      seq = 0
+    end
     {
       :id => id,
       :map => a[2].to_i,
@@ -445,7 +455,8 @@ module FGL_RemotePlayer_Test
       :skin => (a.size > 25 ? a[25].to_i : 0),
       :state => (a.size > 26 ? a[26].to_i : 0),
       :surfmon => (a.size > 27 ? safe_text(a[27]) : ""),
-      :bike_col => (a.size > 28 ? a[28].to_i : 0)
+      :bike_col => (a.size > 28 ? a[28].to_i : 0),
+      :seq => seq
     }
   end
 
@@ -975,12 +986,15 @@ module FGL_RemotePlayer_Test
     return if ipc_port <= 0
     batch = ipc_poll
     @poll_raw = (@poll_raw || 0) + batch.size
-    # Coalesce: pour chaque id, seul le DERNIER PLAYER de ce batch compte
     latest = {}
     batch.each do |raw|
       data = parse_player_raw(raw)
       next unless data
-      latest[data[:id]] = data
+      id = data[:id]
+      prev = latest[id]
+      if prev.nil? || data[:seq].to_i >= prev[:seq].to_i
+        latest[id] = data
+      end
     end
     seen = {}
     latest.each do |id, data|
@@ -994,11 +1008,14 @@ module FGL_RemotePlayer_Test
           :owned_bmp => nil, :hair_bmp => nil, :hat_bmp => nil, :hat2_bmp => nil, :bike_bmp => nil,
           :label_name_bmp => nil, :label_action_bmp => nil,
           :label_key => nil, :bound_map_id => nil, :last_outfit_key => nil,
-          :frozen_sx => nil, :frozen_sy => nil, :miss => 0
+          :frozen_sx => nil, :frozen_sy => nil, :miss => 0, :seq => 0
         }
         @remotes[id] = rec
       end
-      # Remplace l'etat — pas de file, pas de replay
+      if rec[:seq] && data[:seq].to_i > 0 && data[:seq].to_i <= rec[:seq].to_i
+        rec[:miss] = 0
+        next
+      end
       rec[:map] = data[:map]
       rec[:x] = data[:x]
       rec[:y] = data[:y]
@@ -1020,9 +1037,9 @@ module FGL_RemotePlayer_Test
       rec[:state] = data[:state]
       rec[:surfmon] = data[:surfmon]
       rec[:bike_col] = data[:bike_col]
+      rec[:seq] = data[:seq].to_i
       rec[:miss] = 0
     end
-    # Pas de paquet ce tick => miss++, mais sprite reste jusqu'a STALE_MISS
     @remotes.keys.each do |id|
       next if seen[id]
       @remotes[id][:miss] = (@remotes[id][:miss] || 0) + 1
