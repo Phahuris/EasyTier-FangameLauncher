@@ -54,10 +54,15 @@ fn register_local_port(my_port: u16) {
     }
     let path = local_ports_path();
     let mut set = read_local_ports();
+    let others: Vec<u16> = set.iter().copied().filter(|&p| p != my_port && p > 0).collect();
+    set.clear();
     set.insert(my_port);
+    if let Some(&o) = others.iter().max() {
+        set.insert(o);
+    }
     let body: String = set.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n");
     let _ = std::fs::write(&path, body);
-    fgl_trace(&format!("LOCAL_PORT_REGISTER port={}", my_port));
+    fgl_trace(&format!("LOCAL_PORT_REGISTER port={} kept={:?}", my_port, set));
 }
 
 fn read_local_ports() -> std::collections::BTreeSet<u16> {

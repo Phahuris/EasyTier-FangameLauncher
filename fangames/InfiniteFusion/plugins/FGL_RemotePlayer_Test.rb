@@ -8,7 +8,7 @@
 
 module FGL_RemotePlayer_Test
   TICK = 0.05
-  STALE_MISS = 1800
+  STALE_MISS = 120
   STATUS_EVERY = 30
   FW = 80
   FH = 80
@@ -709,7 +709,7 @@ module FGL_RemotePlayer_Test
     action = state_to_action(rec[:state], rec[:cname])
     outfit_key = [rec[:cname], rec[:clothes], rec[:hair], rec[:hat], rec[:hat2],
                   rec[:cc], rec[:hc], rec[:htc], rec[:h2c], rec[:skin],
-                  rec[:state], rec[:surfmon], rec[:bike_col]].join("|")
+                  rec[:bike_col]].join("|")
     need = !rec[:sprite]
     if rec[:sprite]
       begin
@@ -815,6 +815,7 @@ module FGL_RemotePlayer_Test
       rec[:bound_map_id] = remote_mid
       rec[:last_outfit_key] = outfit_key
     end
+    update_sprite_pos(rec) if rec[:sprite]
   end
 
   def self.update_sprite_pos(rec)
@@ -1012,7 +1013,11 @@ module FGL_RemotePlayer_Test
         }
         @remotes[id] = rec
       end
-      if rec[:seq] && data[:seq].to_i > 0 && data[:seq].to_i <= rec[:seq].to_i
+      incoming = data[:seq].to_i
+      applied  = (rec[:seq] || 0).to_i
+      if incoming > 1_000_000_000 || applied > 1_000_000_000
+        # accept
+      elsif incoming > 0 && applied > 0 && incoming <= applied
         rec[:miss] = 0
         next
       end
@@ -1037,7 +1042,9 @@ module FGL_RemotePlayer_Test
       rec[:state] = data[:state]
       rec[:surfmon] = data[:surfmon]
       rec[:bike_col] = data[:bike_col]
-      rec[:seq] = data[:seq].to_i
+      seq_store = data[:seq].to_i
+      seq_store = 0 if seq_store > 1_000_000_000
+      rec[:seq] = seq_store
       rec[:miss] = 0
     end
     @remotes.keys.each do |id|
