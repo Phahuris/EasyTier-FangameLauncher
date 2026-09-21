@@ -8,7 +8,7 @@
 
 module FGL_RemotePlayer_Test
   TICK = 0.05
-  STALE_MISS = 120
+  STALE_MISS = 40
   STATUS_EVERY = 30
   FW = 80
   FH = 80
@@ -408,7 +408,8 @@ module FGL_RemotePlayer_Test
     @last_action_written = action
     state = detect_move_state
     clothes, hair, hat, hat2, cc, hc, htc, h2c, skin, surfmon, bike_col = read_trainer_outfit
-    @tx_seq = (@tx_seq || 0) + 1
+    @tx_seq = (@tx_seq || 0).to_i + 1
+    @tx_seq = 1 if @tx_seq > 1_000_000_000 || @tx_seq < 1
     line = [
       @my_id, "P", mid, px, py, pdir, cname, pspeed, ppat, 0,
       0, 0, 0, 0, 0, action, pname,
@@ -999,8 +1000,14 @@ module FGL_RemotePlayer_Test
     end
     seen = {}
     latest.each do |id, data|
-      seen[id] = true
-      rec = @remotes[id]
+      raw_seq = data[:seq].to_i
+      next if raw_seq > 1_000_000_000
+
+      pname = (data[:pname] || "Player").to_s
+      pname = "Player" if pname.empty?
+      key = pname
+
+      rec = @remotes[key]
       if rec.nil?
         rec = {
           :sprite => nil, :hair_spr => nil, :hat_spr => nil, :hat2_spr => nil,
@@ -1009,18 +1016,20 @@ module FGL_RemotePlayer_Test
           :owned_bmp => nil, :hair_bmp => nil, :hat_bmp => nil, :hat2_bmp => nil, :bike_bmp => nil,
           :label_name_bmp => nil, :label_action_bmp => nil,
           :label_key => nil, :bound_map_id => nil, :last_outfit_key => nil,
-          :frozen_sx => nil, :frozen_sy => nil, :miss => 0, :seq => 0
+          :frozen_sx => nil, :frozen_sy => nil, :miss => 0, :seq => 0,
+          :net_id => id
         }
-        @remotes[id] = rec
+        @remotes[key] = rec
       end
-      incoming = data[:seq].to_i
+
+      incoming = raw_seq
       applied  = (rec[:seq] || 0).to_i
-      if incoming > 1_000_000_000 || applied > 1_000_000_000
-        # accept
-      elsif incoming > 0 && applied > 0 && incoming <= applied
+      if incoming > 0 && applied > 0 && incoming < applied
         rec[:miss] = 0
         next
       end
+
+      rec[:net_id] = id
       rec[:map] = data[:map]
       rec[:x] = data[:x]
       rec[:y] = data[:y]
@@ -1029,7 +1038,7 @@ module FGL_RemotePlayer_Test
       rec[:speed] = data[:speed]
       rec[:pattern] = data[:pattern]
       rec[:action] = data[:action]
-      rec[:pname] = data[:pname]
+      rec[:pname] = pname
       rec[:clothes] = data[:clothes]
       rec[:hair] = data[:hair]
       rec[:hat] = data[:hat]
@@ -1042,9 +1051,7 @@ module FGL_RemotePlayer_Test
       rec[:state] = data[:state]
       rec[:surfmon] = data[:surfmon]
       rec[:bike_col] = data[:bike_col]
-      seq_store = data[:seq].to_i
-      seq_store = 0 if seq_store > 1_000_000_000
-      rec[:seq] = seq_store
+      rec[:seq] = incoming
       rec[:miss] = 0
     end
     @remotes.keys.each do |id|

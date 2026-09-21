@@ -594,8 +594,8 @@ const FGL_BATTLE_FR_RB: &str = include_str!("../embedded_plugins/FGL_Battle_FR.r
 const FGL_BATTLE_EN_RB: &str = include_str!("../embedded_plugins/FGL_Battle_EN.rb");
 const FGL_TRADE_FR_RB: &str = include_str!("../embedded_plugins/FGL_Trade_FR.rb");
 const FGL_TRADE_EN_RB: &str = include_str!("../embedded_plugins/FGL_Trade_EN.rb");
-const FGL_NET_FR_RB: &str = include_str!("../embedded_plugins/FGL_Net_FR.rb");
-const FGL_NET_EN_RB: &str = include_str!("../embedded_plugins/FGL_Net_EN.rb");
+// [TEST] disable Net install: const FGL_NET_FR_RB: &str = include_str!("../embedded_plugins/FGL_Net_FR.rb");
+// [TEST] disable Net install: const FGL_NET_EN_RB: &str = include_str!("../embedded_plugins/FGL_Net_EN.rb");
 const FGL_BATTLE_MP3: &[u8] = include_bytes!("../embedded_plugins/FGL_Battle.mp3");
 // Source UNIQUE: fangames/InfiniteFusion/plugins/FGL_RemotePlayer_Test.rb (pas de copie parallele a editer)
 const FGL_REMOTE_PLAYER_TEST_RB: &str = include_str!("../../../fangames/InfiniteFusion/plugins/FGL_RemotePlayer_Test.rb");
@@ -632,8 +632,8 @@ fn embedded_plugin_src(base: &str, lang: &str) -> Result<&'static str, String> {
         ("FGL_Battle", "EN") => Ok(FGL_BATTLE_EN_RB),
         ("FGL_Trade", "FR") => Ok(FGL_TRADE_FR_RB),
         ("FGL_Trade", "EN") => Ok(FGL_TRADE_EN_RB),
-        ("FGL_Net", "FR") => Ok(FGL_NET_FR_RB),
-        ("FGL_Net", "EN") => Ok(FGL_NET_EN_RB),
+// [TEST] disable Net install:         ("FGL_Net", "FR") => Ok(FGL_NET_FR_RB),
+// [TEST] disable Net install:         ("FGL_Net", "EN") => Ok(FGL_NET_EN_RB),
         _ => Err(format!("plugin inconnu: {}_{}", base, lang)),
     }
 }
@@ -736,7 +736,7 @@ fn check_plugins_on_disk(
         vec![
             "FGL_Battle".into(),
             "FGL_Trade".into(),
-            "FGL_Net".into(),
+// [TEST] disable Net install:             "FGL_Net".into(),
         ]
     } else {
         entry.plugins.clone()
@@ -927,7 +927,7 @@ pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, St
         vec![
             "FGL_Battle".into(),
             "FGL_Trade".into(),
-            "FGL_Net".into(),
+// [TEST] disable Net install:             "FGL_Net".into(),
         ]
     } else {
         entry.plugins.clone()
