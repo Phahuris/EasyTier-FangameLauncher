@@ -17,19 +17,8 @@ fn extract_seq(payload: &str) -> u64 {
         .unwrap_or(0)
 }
 
-fn fgl_trace(msg: &str) {
-    use std::io::Write;
-    let path = std::env::var("USERPROFILE")
-        .ok()
-        .map(|u| std::path::PathBuf::from(u).join("Desktop").join("fgl_player_trace.log"))
-        .unwrap_or_else(|| std::env::temp_dir().join("fgl_player_trace.log"));
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
-        let _ = writeln!(f, "{}", msg);
-    }
+fn fgl_trace(_msg: &str) {
+    // disabled: no fgl_player_trace.log (low-end PC)
 }
 
 fn discovery_port(network: &str) -> u16 {
@@ -146,8 +135,7 @@ fn dest_addrs(ip: IpAddr, port: u16, my_port: u16) -> Vec<SocketAddr> {
         return v;
     }
     if !ip.is_loopback() {
-        v.push(SocketAddr::new(ip, port));
-        v.push(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port));
+        v.push(SocketAddr::new(ip, port)); // single dest (no dual localhost flood)
     }
     v
 }
@@ -458,7 +446,7 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
             fgl_trace(&format!("TX_EASYTIER_ERROR seq={} ip={} err=no_endpoint", seq, ip));
         }
         // discovery bootstrap leger
-        for dest in dest_addrs(*ip, dport, my_port) {
+        for dest in dest_addrs(*ip, dport, my_port).into_iter().take(0) { // disabled per-player discovery
             let _ = sock.send_to(&data, dest).await;
         }
     }
@@ -516,7 +504,7 @@ async fn bootstrap_announce(state: &LinkState) {
         other_local_port(my_port)
     ));
     for ip in &peers {
-        for dest in dest_addrs(*ip, dport, my_port) {
+        for dest in dest_addrs(*ip, dport, my_port).into_iter().take(0) { // disabled per-player discovery
             send_announce_to(&sock, dest, &pseudo, my_port).await;
         }
     }

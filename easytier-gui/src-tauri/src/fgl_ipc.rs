@@ -15,19 +15,8 @@ fn extract_seq(payload: &str) -> u64 {
         .unwrap_or(0)
 }
 
-fn fgl_trace(msg: &str) {
-    use std::io::Write;
-    let path = std::env::var("USERPROFILE")
-        .ok()
-        .map(|u| std::path::PathBuf::from(u).join("Desktop").join("fgl_player_trace.log"))
-        .unwrap_or_else(|| std::env::temp_dir().join("fgl_player_trace.log"));
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
-        let _ = writeln!(f, "{}", msg);
-    }
+fn fgl_trace(_msg: &str) {
+    // disabled: no fgl_player_trace.log (low-end PC)
 }
 
 pub struct IpcState {
