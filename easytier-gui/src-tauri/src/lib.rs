@@ -969,6 +969,13 @@ mod manager {
             cfg: &easytier::common::config::TomlConfigLoader,
             source: PersistedConfigSource,
         ) -> Result<(), String> {
+
+            // FGL_FORCE_LATENCY_FIRST: prefer lowest-latency path (not hop count)
+            {
+                let mut flags = cfg.get_flags();
+                flags.latency_first = true;
+                cfg.set_flags(flags);
+            }
             let instance_id = cfg.get_id();
             app.emit("pre_run_network_instance", instance_id.to_string())
                 .map_err(|e| e.to_string())?;

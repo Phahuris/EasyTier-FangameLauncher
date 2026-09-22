@@ -504,7 +504,7 @@ async fn bootstrap_announce(state: &LinkState) {
         other_local_port(my_port)
     ));
     for ip in &peers {
-        for dest in dest_addrs(*ip, dport, my_port).into_iter().take(0) { // disabled per-player discovery
+        for dest in dest_addrs(*ip, dport, my_port) { // bootstrap discovery ON (peers learn ports)
             send_announce_to(&sock, dest, &pseudo, my_port).await;
         }
     }
