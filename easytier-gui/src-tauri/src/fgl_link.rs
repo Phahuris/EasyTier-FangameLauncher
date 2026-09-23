@@ -30,42 +30,14 @@ fn discovery_port(network: &str) -> u16 {
     40000 + (h % 20000) as u16
 }
 
-fn local_ports_path() -> std::path::PathBuf {
-    std::env::var("USERPROFILE")
-        .ok()
-        .map(|u| std::path::PathBuf::from(u).join("Desktop").join("fgl_link_local_ports.txt"))
-        .unwrap_or_else(|| std::env::temp_dir().join("fgl_link_local_ports.txt"))
-}
+fn local_ports_path() -> std::path::PathBuf { std::env::temp_dir().join("fgl_unused.txt") }
 
-fn register_local_port(my_port: u16) {
-    if my_port == 0 {
-        return;
-    }
-    let path = local_ports_path();
-    let mut set = read_local_ports();
-    let others: Vec<u16> = set.iter().copied().filter(|&p| p != my_port && p > 0).collect();
-    set.clear();
-    set.insert(my_port);
-    if let Some(&o) = others.iter().max() {
-        set.insert(o);
-    }
-    let body: String = set.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n");
-    let _ = std::fs::write(&path, body);
-    fgl_trace(&format!("LOCAL_PORT_REGISTER port={} kept={:?}", my_port, set));
+fn register_local_port(_my_port: u16) {
+    // disabled: no Desktop fgl_link_local_ports.txt
 }
 
 fn read_local_ports() -> std::collections::BTreeSet<u16> {
-    let mut set = std::collections::BTreeSet::new();
-    if let Ok(txt) = std::fs::read_to_string(local_ports_path()) {
-        for line in txt.lines() {
-            if let Ok(p) = line.trim().parse::<u16>() {
-                if p > 0 {
-                    set.insert(p);
-                }
-            }
-        }
-    }
-    set
+    std::collections::BTreeSet::new()
 }
 
 /// Autre instance sur ce PC (registre Bureau).
