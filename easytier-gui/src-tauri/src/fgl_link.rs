@@ -30,10 +30,12 @@ fn discovery_port(network: &str) -> u16 {
     40000 + (h % 20000) as u16
 }
 
-fn local_ports_path() -> std::path::PathBuf { std::env::temp_dir().join("fgl_unused.txt") }
+fn local_ports_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("fgl_UNUSED_do_not_use.txt")
+}
 
 fn register_local_port(_my_port: u16) {
-    // disabled: no Desktop fgl_link_local_ports.txt
+    // test-only file removed: no disk, ports via EasyTier announce only
 }
 
 fn read_local_ports() -> std::collections::BTreeSet<u16> {
@@ -41,10 +43,8 @@ fn read_local_ports() -> std::collections::BTreeSet<u16> {
 }
 
 /// Autre instance sur ce PC (registre Bureau).
-fn other_local_port(my_port: u16) -> Option<u16> {
-    read_local_ports()
-        .into_iter()
-        .find(|&p| p != my_port && p > 0)
+fn other_local_port(_my_port: u16) -> Option<u16> {
+    None // no file registry — use endpoints from EasyTier only
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -415,7 +415,12 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
                 }
             }
         } else {
-            fgl_trace(&format!("TX_EASYTIER_ERROR seq={} ip={} err=no_endpoint", seq, ip));
+            // pas d'endpoint encore: pousse sur discovery_port pour forcer learn (sans fichier)
+            for dest in dest_addrs(*ip, dport, my_port) {
+                if sock.send_to(&data, dest).await.is_ok() {
+                    sent += 1;
+                }
+            }
         }
         // discovery bootstrap leger
         for dest in dest_addrs(*ip, dport, my_port).into_iter().take(0) { // disabled per-player discovery
