@@ -40,6 +40,7 @@ fn register_local_port(my_port: u16) {
     }
     let path = local_ports_path();
     let mut set = read_local_ports();
+    set.insert(my_port);
     let others: Vec<u16> = set.iter().copied().filter(|&p| p != my_port && p > 0).collect();
     set.clear();
     set.insert(my_port);
@@ -48,7 +49,6 @@ fn register_local_port(my_port: u16) {
     }
     let body: String = set.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n");
     let _ = std::fs::write(&path, body);
-    fgl_trace(&format!("LOCAL_PORT_REGISTER port={} kept={:?}", my_port, set));
 }
 
 fn read_local_ports() -> std::collections::BTreeSet<u16> {
@@ -65,7 +65,6 @@ fn read_local_ports() -> std::collections::BTreeSet<u16> {
     set
 }
 
-/// Autre instance sur ce PC (registre Bureau).
 fn other_local_port(my_port: u16) -> Option<u16> {
     read_local_ports()
         .into_iter()
