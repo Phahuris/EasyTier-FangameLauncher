@@ -31,8 +31,7 @@ fn discovery_port(network: &str) -> u16 {
 }
 
 fn local_ports_path() -> std::path::PathBuf {
-    std::env::temp_dir().join("fgl_link_local_ports.txt"))
-        .unwrap_or_else(|| std::env::temp_dir().join("fgl_link_local_ports.txt"))
+    std::env::temp_dir().join("fgl_link_local_ports.txt")
 }
 
 fn register_local_port(my_port: u16) {
