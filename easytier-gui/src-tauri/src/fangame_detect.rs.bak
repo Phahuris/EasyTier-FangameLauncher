@@ -597,18 +597,18 @@ const FGL_TRADE_EN_RB: &str = include_str!("../embedded_plugins/FGL_Trade_EN.rb"
 const FGL_NET_FR_RB: &str = include_str!("../embedded_plugins/FGL_Net_FR.rb");
 const FGL_NET_EN_RB: &str = include_str!("../embedded_plugins/FGL_Net_EN.rb");
 const FGL_BATTLE_MP3: &[u8] = include_bytes!("../embedded_plugins/FGL_Battle.mp3");
-// Source UNIQUE: fangames/Plugins/InfiniteFusion/FGL_RemotePlayer_Test.rb (pas de copie parallele a editer)
-const FGL_REMOTE_PLAYER_TEST_RB: &str = include_str!("../../../fangames/Plugins/InfiniteFusion/FGL_RemotePlayer_Test.rb");
+// Source UNIQUE: fangames/InfiniteFusion/plugins/FGL_RemotePlayer_Test.rb (pas de copie parallele a editer)
+const FGL_REMOTE_PLAYER_TEST_RB: &str = include_str!("../../../fangames/InfiniteFusion/plugins/FGL_RemotePlayer_Test.rb");
 
 fn fangames_plugins_dir() -> PathBuf {
-    launcher_fangames_root().join("Plugins").join("InfiniteFusion")
+    launcher_fangames_root().join("InfiniteFusion").join("plugins")
 }
 
 fn plugin_bytes_from_fangames(filename: &str) -> Result<Vec<u8>, String> {
     let path = fangames_plugins_dir().join(filename);
     if !path.is_file() {
         return Err(format!(
-            "plugin source manquant: {} (attendu sous fangames/Plugins/InfiniteFusion)",
+            "plugin source manquant: {} (attendu sous fangames/InfiniteFusion/plugins)",
             path.display()
         ));
     }
@@ -743,9 +743,6 @@ fn check_plugins_on_disk(
     };
     let mut missing = Vec::new();
     for base in plugins {
-        if base == "FGL_Net" {
-            continue; // TEST: Net off, RemotePlayer_Test a la place
-        }
         let p = dest.join(format!("{}_{}.rb", base, lang));
         if !p.is_file() {
             missing.push(format!("{}_{}.rb", base, lang));
@@ -937,28 +934,29 @@ pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, St
     };
 
     let mut installed = Vec::new();
-    // TEST: retirer FGL_Net du jeu (evite double flux)
-    let _ = std::fs::remove_file(plugin_dest.join("FGL_Net_FR.rb"));
-    let _ = std::fs::remove_file(plugin_dest.join("FGL_Net_EN.rb"));
     for base in &plugins {
-        if base == "FGL_Net" { continue; }
-        let _ = std::fs::remove_file(plugin_dest.join(format!("{}_{}.rb", base, other)));
-        let src = plugin_src_lang(base, lang_u)?;
+        // TEMP: ne plus supprimer le .rb de l autre langue — // TEMP: ne plus supprimer le .rb de l autre langue
         let dst = plugin_dest.join(format!("{}_{}.rb", base, lang_u));
-        std::fs::write(&dst, src.as_bytes()).map_err(|e| format!("write {}: {}", base, e))?;
-        installed.push(format!("{}_{}.rb", base, lang_u));
+        if !dst.is_file() {
+            let src = plugin_src_lang(base, lang_u)?;
+            std::fs::write(&dst, src.as_bytes()).map_err(|e| format!("write {}: {}", base, e))?;
+            installed.push(format!("{}_{}.rb", base, lang_u));
+        }
     }
     {
         let name = "FGL_RemotePlayer_Test.rb";
-        match plugin_bytes_from_fangames(name) {
-            Ok(bytes) => {
-                let dst = plugin_dest.join(name);
-                std::fs::write(&dst, &bytes)
-                    .map_err(|e| format!("write {}: {}", name, e))?;
-                installed.push(name.to_string());
-            }
-            Err(e) => {
-                eprintln!("[FGL] skip {}: {}", name, e);
+        let dst = plugin_dest.join(name);
+        if !dst.is_file() {
+            match plugin_bytes_from_fangames(name) {
+                Ok(bytes) => {
+                    let dst = plugin_dest.join(name);
+                    std::fs::write(&dst, &bytes)
+                        .map_err(|e| format!("write {}: {}", name, e))?;
+                    installed.push(name.to_string());
+                }
+                Err(e) => {
+                    eprintln!("[FGL] skip {}: {}", name, e);
+                }
             }
         }
     }
@@ -976,9 +974,11 @@ pub fn install_fgl_plugins(game_path: String, lang: String) -> Result<String, St
     // Prototype test: deploie automatiquement dans Data/Scripts/052_AddOns
     {
         let dst = plugin_dest.join("FGL_RemotePlayer_Test.rb");
-        std::fs::write(&dst, FGL_REMOTE_PLAYER_TEST_RB)
+        if !dst.is_file() {
+            std::fs::write(&dst, FGL_REMOTE_PLAYER_TEST_RB)
             .map_err(|e| format!("write FGL_RemotePlayer_Test.rb: {}", e))?;
-        installed.push("FGL_RemotePlayer_Test.rb".into());
+            installed.push("FGL_RemotePlayer_Test.rb".into());
+        }
     }
 
     let (ok, missing) = check_plugins_on_disk(&root, &entry, lang_u);

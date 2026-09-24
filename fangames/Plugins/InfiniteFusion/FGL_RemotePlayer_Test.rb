@@ -8,7 +8,7 @@
 
 module FGL_RemotePlayer_Test
   TICK = 0.05
-  STALE_MISS = 40
+  STALE_MISS = 120
   STATUS_EVERY = 30
   FW = 80
   FH = 80
@@ -27,12 +27,8 @@ module FGL_RemotePlayer_Test
 
   def self.status_path
     begin
-      desk = ENV["USERPROFILE"].to_s
-      return File.join(desk, "Desktop", "fgl_rpt_status.txt") if desk != ""
-    rescue
-    end
-    begin
-      return File.join(ENV["TEMP"].to_s, "fgl_rpt_status.txt")
+      t = ENV["TEMP"].to_s
+      return File.join(t, "fgl_rpt_status.txt") if t != ""
     rescue
     end
     "fgl_rpt_status.txt"
@@ -1006,6 +1002,7 @@ module FGL_RemotePlayer_Test
       pname = (data[:pname] || "Player").to_s
       pname = "Player" if pname.empty?
       key = pname
+      seen[key] = true
 
       rec = @remotes[key]
       if rec.nil?
