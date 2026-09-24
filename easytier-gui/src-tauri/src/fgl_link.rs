@@ -34,6 +34,14 @@ fn local_ports_path() -> std::path::PathBuf {
     std::env::temp_dir().join("fgl_link_local_ports.txt")
 }
 
+/// true si quelque chose ecoute deja ce port UDP (on ne peut pas bind)
+fn port_in_use(port: u16) -> bool {
+    if port == 0 {
+        return false;
+    }
+    std::net::UdpSocket::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port))).is_err()
+}
+
 fn register_local_port(my_port: u16) {
     if my_port == 0 {
         return;
@@ -41,13 +49,23 @@ fn register_local_port(my_port: u16) {
     let path = local_ports_path();
     let mut set = read_local_ports();
     set.insert(my_port);
-    let others: Vec<u16> = set.iter().copied().filter(|&p| p != my_port && p > 0).collect();
-    set.clear();
-    set.insert(my_port);
-    if let Some(&o) = others.iter().max() {
-        set.insert(o);
+    // ne garder que les ports encore pris (elimine STALE)
+    let live: Vec<u16> = set
+        .iter()
+        .copied()
+        .filter(|&p| p > 0 && (p == my_port || port_in_use(p)))
+        .collect();
+    let mut out = std::collections::BTreeSet::new();
+    out.insert(my_port);
+    for p in live {
+        if p != my_port {
+            out.insert(p);
+            if out.len() >= 2 {
+                break;
+            }
+        }
     }
-    let body: String = set.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n");
+    let body: String = out.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n");
     let _ = std::fs::write(&path, body);
 }
 
@@ -68,7 +86,7 @@ fn read_local_ports() -> std::collections::BTreeSet<u16> {
 fn other_local_port(my_port: u16) -> Option<u16> {
     read_local_ports()
         .into_iter()
-        .find(|&p| p != my_port && p > 0)
+        .find(|&p| p != my_port && p > 0 && port_in_use(p))
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
