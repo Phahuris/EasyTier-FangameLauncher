@@ -34,49 +34,49 @@ fn local_ports_path() -> std::path::PathBuf {
     std::env::temp_dir().join("fgl_link_local_ports.txt")
 }
 
-/// true si quelque chose ecoute deja ce port UDP (on ne peut pas bind)
-fn port_in_use(port: u16) -> bool {
-    if port == 0 {
-        return false;
-    }
-    std::net::UdpSocket::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port))).is_err()
-}
-
 fn register_local_port(my_port: u16) {
     if my_port == 0 {
         return;
     }
+    let now = now_ts();
     let path = local_ports_path();
-    let mut set = read_local_ports();
-    set.insert(my_port);
-    // ne garder que les ports encore pris (elimine STALE)
-    let live: Vec<u16> = set
-        .iter()
-        .copied()
-        .filter(|&p| p > 0 && (p == my_port || port_in_use(p)))
-        .collect();
-    let mut out = std::collections::BTreeSet::new();
-    out.insert(my_port);
-    for p in live {
-        if p != my_port {
-            out.insert(p);
-            if out.len() >= 2 {
-                break;
+    let mut entries: Vec<(u16, u64)> = Vec::new();
+    if let Ok(txt) = std::fs::read_to_string(&path) {
+        for line in txt.lines() {
+            let mut parts = line.split_whitespace();
+            let Some(p) = parts.next().and_then(|s| s.parse::<u16>().ok()) else { continue };
+            let ts = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+            if p > 0 && p != my_port && now.saturating_sub(ts) <= 45 {
+                entries.push((p, ts));
             }
         }
     }
-    let body: String = out.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n");
+    entries.push((my_port, now));
+    entries.sort_by_key(|(p, _)| *p);
+    entries.dedup_by_key(|(p, _)| *p);
+    // max 2 process same-PC
+    if entries.len() > 2 {
+        entries.sort_by_key(|(_, ts)| std::cmp::Reverse(*ts));
+        entries.truncate(2);
+    }
+    let body: String = entries
+        .iter()
+        .map(|(p, ts)| format!("{p} {ts}"))
+        .collect::<Vec<_>>()
+        .join("\n");
     let _ = std::fs::write(&path, body);
 }
 
 fn read_local_ports() -> std::collections::BTreeSet<u16> {
+    let now = now_ts();
     let mut set = std::collections::BTreeSet::new();
     if let Ok(txt) = std::fs::read_to_string(local_ports_path()) {
         for line in txt.lines() {
-            if let Ok(p) = line.trim().parse::<u16>() {
-                if p > 0 {
-                    set.insert(p);
-                }
+            let mut parts = line.split_whitespace();
+            let Some(p) = parts.next().and_then(|s| s.parse::<u16>().ok()) else { continue };
+            let ts = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(now);
+            if p > 0 && now.saturating_sub(ts) <= 45 {
+                set.insert(p);
             }
         }
     }
@@ -86,7 +86,7 @@ fn read_local_ports() -> std::collections::BTreeSet<u16> {
 fn other_local_port(my_port: u16) -> Option<u16> {
     read_local_ports()
         .into_iter()
-        .find(|&p| p != my_port && p > 0 && port_in_use(p))
+        .find(|&p| p != my_port && p > 0)
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -464,8 +464,11 @@ pub async fn relay_player(state: &LinkState, payload: &str) -> u32 {
             let _ = sock.send_to(&data, dest).await;
         }
     }
-    // meme PC direct
-    if let Some(rp) = other_local_port(my_port) {
+    // meme PC: tous les ports TEMP frais (sauf moi) — ignore ports morts via TTL 45s
+    for rp in read_local_ports() {
+        if rp == my_port || rp == 0 {
+            continue;
+        }
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rp);
         if sock.send_to(&data, dest).await.is_ok() {
             sent += 1;
